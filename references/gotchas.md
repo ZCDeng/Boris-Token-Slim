@@ -126,3 +126,37 @@ for p, pd in d.get('projects', {}).items():
 - 每轮对话这 3 段都在加载
 
 直接删 CLAUDE.md 里的相关段。
+
+## 坑 8：MCP `claude mcp remove` 静默重生
+
+跑 `claude mcp remove task-master-ai` 显示 "✔ Successfully removed"，重启 Claude Code 之后再跑 `claude mcp list` —— **task-master-ai 又出现了**。
+
+**原因**（推测）：plugin auto-update 在 SessionStart 重新注册 MCP。某些 plugin 在元数据里声明了 MCP 依赖，每次启动如果发现没注册就再补上。`claude mcp remove` 改的不是真"权威源"。
+
+**症状判断**：
+- `claude mcp list` 显示 N 个
+- `python3 -c "import json; print(list(json.load(open('~/.claude.json'))['mcpServers'].keys()))"` 显示 M 个
+- N > M → 差额是被 plugin 自动注册的"幽灵 MCP"
+
+**修法**：找到注册它的 plugin 卸载该 plugin，而不是反复 `claude mcp remove`。
+
+```bash
+# 找元凶
+grep -rl "task-master" ~/.claude/plugins/cache/*/*/plugin.json 2>/dev/null
+# 然后 claude plugin uninstall 那个 plugin
+```
+
+如果你需要保留这个 MCP 但不想 plugin 自动补它，那只能保留这个 plugin。两难。
+
+## 坑 9：audit.sh 自身的 false negative
+
+我们的 audit.sh 检测 `installed_plugins.json` 里的 plugin 数量。但有些"内嵌 skill 的 plugin"（如 `huggingface-skills`）只算 1 个 plugin，实际把 8 个 SKILL.md 装进了 `~/.claude/skills/`。这 8 个会出现在 system-reminder 的 skill 清单里，但**不计入** Gotcha #3 (sub-plugin explosion) 的检测。
+
+**Workaround**：交叉看 metric 1 (插件数) + metric 5 (skill 数)。如果 plugin=20 但 skill=200，那说明有 plugin 在挂大量 skill。具体是哪个：
+
+```bash
+for p in ~/.claude/plugins/cache/*/*; do
+  n=$(find "$p" -name "SKILL.md" 2>/dev/null | wc -l | tr -d ' ')
+  [ "$n" -ge 5 ] && echo "$n SKILL.md in $(basename $(dirname $p))/$(basename $p)"
+done | sort -rn
+```
