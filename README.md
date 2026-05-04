@@ -5,13 +5,21 @@
 
 A Claude Code [skill](https://docs.claude.com/en/docs/claude-code/skills) that audits and trims the hidden overhead in your `~/.claude/` setup — bloated `CLAUDE.md`, stale `MEMORY.md`, plugin explosion, always-on MCP servers, dead symlinks, and the `scientific-skills` 142-pack that everyone installs and never uses.
 
-Inspired by [this article](https://youmind.com/s/MieRjYvn3NFzLd) which proxy-logged 430 hours of Claude Code and found **73% of tokens were waste**. Extended with seven real-world gotchas the article doesn't mention (most notably: `commands/_archive/` still gets scanned by the harness, so moving stuff there makes names *longer*).
+> **Boris Cherny, the creator of Claude Code at Anthropic, just listed 9 patterns that waste 73% of your tokens.**
+>
+> *— [@Mnilax, on X](https://x.com/i/status/2050321700802408552) · 5.5K likes*
+
+Boris Cherny (Claude Code's creator) first surfaced the **9-pattern framework** on a podcast; [@Mnilax / Mnimiy](https://youmind.com/s/MieRjYvn3NFzLd) then instrumented **430 hours** of his own Claude Code usage with an HTTP proxy and put hard percentages on each pattern — **73% of all tokens were waste**, 27% productive. This skill operationalizes both: the 9 categories + 7 additional gotchas the author hit cleaning his own machine (most notably: `commands/_archive/` still gets scanned by the harness, so moving stuff there makes names *longer*).
 
 ---
 
 ## 中文介绍
 
-有人用 HTTP proxy 拦了 **430 小时**的 Claude Code 流量、6M input tokens、$1340 API 支出，分类统计后发现：真正回答你问题的 productive token 只占 **27%**，剩下 **73% 花在你看不见的 9 个地方**。
+> **Boris Cherny——Anthropic 的 Claude Code 作者——在一期 podcast 里列出了 9 种浪费你 73% token 的模式。**
+>
+> *— [@Mnilax 在 X 的推文](https://x.com/i/status/2050321700802408552) · 5490 赞*
+
+Boris Cherny（Claude Code 作者）先在 podcast 里提出**9 模式分类框架**；[@Mnilax（Mnimiy）](https://youmind.com/s/MieRjYvn3NFzLd) 随后用 HTTP proxy 拦截了自己 **430 小时**、6M tokens、\$1340 的 Claude Code 流量，给每条模式打上硬数据——真正回答你问题的 productive token 只占 **27%**，剩下 **73% 花在你看不见的 9 个地方**。
 
 - 你还没打一个字，**~14%** 额度已经花在加载 `CLAUDE.md` 上
 - 对话到第 30 条，每条都在重读前面 29 条——**~13%** 全是重读
