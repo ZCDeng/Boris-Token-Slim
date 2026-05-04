@@ -19,7 +19,7 @@ Boris Cherny (Claude Code's creator) first surfaced the **9-pattern framework** 
 >
 > *— [@Mnilax 在 X 的推文](https://x.com/i/status/2050321700802408552) · 5490 赞*
 
-Boris Cherny（Claude Code 作者）先在 podcast 里提出**9 模式分类框架**；[@Mnilax（Mnimiy）](https://youmind.com/s/MieRjYvn3NFzLd) 随后用 HTTP proxy 拦截了自己 **430 小时**、6M tokens、\$1340 的 Claude Code 流量，给每条模式打上硬数据——真正回答你问题的 productive token 只占 **27%**，剩下 **73% 花在你看不见的 9 个地方**。
+Boris Cherny（Claude Code 作者）先在 podcast 里提出**9 模式分类框架**；[@Mnilax（Mnimiy）](https://youmind.com/s/MieRjYvn3NFzLd) 随后用 HTTP proxy 拦截了自己的 Claude Code 流量，给每条模式打上硬数据——真正回答你问题的 productive token 只占 **27%**，剩下 **73% 花在你看不见的 9 个地方**。
 
 - 你还没打一个字，**~14%** 额度已经花在加载 `CLAUDE.md` 上
 - 对话到第 30 条，每条都在重读前面 29 条——**~13%** 全是重读
