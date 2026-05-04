@@ -145,7 +145,7 @@ Use both. Token Optimizer is your dashboard. Boris-Token-Slim is your annual phy
 | 6 | Big packs in `~/.claude/commands/` (like `scientific-skills`) | 0 |
 | 7 | Active `settings.json` hooks | < 3 |
 
-Plus **9 gotcha detectors** that print actionable evidence (paths, names, line numbers):
+Plus **8 gotcha detectors** that print actionable evidence (paths, names, line numbers):
 
 | # | Detector | What it finds |
 |---|----------|---------------|
@@ -155,9 +155,8 @@ Plus **9 gotcha detectors** that print actionable evidence (paths, names, line n
 | 4 | Same-name plugin | Same bare name installed from multiple marketplaces |
 | 5 | Project-scope MCP | MCPs hidden in `~/.claude.json::projects[*].mcpServers` |
 | 6 | Zombie configs | `CLAUDE.md` references modules `MEMORY` says are removed |
-| 7 | Archive layout | Archives in `_archive/` instead of `~/.claude/_*_archive/` |
-| 8 | MCP zombie resurrection | Plugins that auto-register MCPs (so `claude mcp remove` is reverted on restart) |
-| 9 | Plugin sub-skill bundles | Plugins shipping ≥5 `SKILL.md` files; **distinguishes installed vs cache-residue** |
+| 7 | MCP zombie resurrection | Plugins that auto-register MCPs (so `claude mcp remove` is reverted on restart) |
+| 8 | Plugin sub-skill bundles | Plugins shipping ≥5 `SKILL.md` files; **distinguishes installed vs cache-residue** |
 
 ## What it does (interactive, safe)
 

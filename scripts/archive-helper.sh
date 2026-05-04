@@ -14,6 +14,11 @@ CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 DATE="$(date +%Y%m%d)"
 ARCHIVE_ROOT="$CLAUDE_HOME/_tokenslim_archive_$DATE"
 
+# Cross-platform Claude Code project dir encoding (see audit.sh for rationale).
+HOME_ENCODED="-${HOME#/}"
+HOME_ENCODED="${HOME_ENCODED//\//-}"
+PROJECT_MEM_DIR="$CLAUDE_HOME/projects/$HOME_ENCODED/memory"
+
 cmd="${1:-}"
 
 die() { echo "error: $*" >&2; exit 1; }
@@ -27,7 +32,7 @@ backup_configs() {
   init_archive
   [ -f "$CLAUDE_HOME/CLAUDE.md" ] && cp "$CLAUDE_HOME/CLAUDE.md" "$ARCHIVE_ROOT/claude-md.before.md" && echo "  backed up CLAUDE.md"
   # Find MEMORY.md (location varies by user)
-  for mem in "$CLAUDE_HOME/projects/-Users-$USER/memory/MEMORY.md" "$CLAUDE_HOME/memory/MEMORY.md"; do
+  for mem in "$PROJECT_MEM_DIR/MEMORY.md" "$CLAUDE_HOME/memory/MEMORY.md"; do
     [ -f "$mem" ] && cp "$mem" "$ARCHIVE_ROOT/memory-md.before.md" && echo "  backed up MEMORY.md ($mem)" && break
   done
   [ -f "$HOME/.claude.json" ] && cp "$HOME/.claude.json" "$ARCHIVE_ROOT/mcp-backup/claude.json" && echo "  backed up ~/.claude.json"
@@ -48,7 +53,7 @@ move_mem() {
   [ -z "$file" ] && die "usage: archive-helper.sh mv-mem FILE"
   # Search for the file
   local src=""
-  for dir in "$CLAUDE_HOME/projects/-Users-$USER/memory" "$CLAUDE_HOME/memory"; do
+  for dir in "$PROJECT_MEM_DIR" "$CLAUDE_HOME/memory"; do
     if [ -f "$dir/$file" ]; then
       src="$dir/$file"
       break

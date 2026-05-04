@@ -45,6 +45,9 @@ CACHE_WRITE_1H   = 2.0
 
 PROJECTS_ROOT = Path.home() / ".claude" / "projects"
 
+# Track unknown models so we warn once per ID, not per session
+_UNKNOWN_MODELS_SEEN: set[str] = set()
+
 
 def price_for(model: str) -> tuple[float, float]:
     if not model:
@@ -53,6 +56,13 @@ def price_for(model: str) -> tuple[float, float]:
     for key, val in PRICES.items():
         if key in m:
             return val
+    if model not in _UNKNOWN_MODELS_SEEN:
+        _UNKNOWN_MODELS_SEEN.add(model)
+        print(
+            f"warning: unknown model id {model!r}, falling back to Sonnet pricing "
+            f"({PRICES['sonnet'][0]}/{PRICES['sonnet'][1]} per 1M)",
+            file=sys.stderr,
+        )
     return PRICES["sonnet"]
 
 

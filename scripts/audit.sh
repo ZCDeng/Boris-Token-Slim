@@ -1,14 +1,20 @@
 #!/usr/bin/env bash
 # Boris-Token-Slim audit script
 # Two layers:
-#   1. Nine static metrics (sizes, counts, thresholds)
-#   2. Nine gotcha detectors (concrete evidence: paths, names, line numbers)
+#   1. Seven static metrics (sizes, counts, thresholds)
+#   2. Eight gotcha detectors (concrete evidence: paths, names, line numbers)
 # Exit code 0 always — this is a report, not a gate.
 
 set -u
 
 CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
-MEMORY_DIR="${MEMORY_DIR:-$CLAUDE_HOME/projects/-Users-$USER/memory}"
+# Claude Code encodes the home path by replacing '/' with '-' (no leading dash).
+# macOS: /Users/foo  -> Users-foo  -> dir is "-Users-foo"
+# Linux: /home/foo   -> home-foo   -> dir is "-home-foo"
+# Strip the leading slash before substitution so we get exactly one leading dash.
+HOME_ENCODED="-${HOME#/}"
+HOME_ENCODED="${HOME_ENCODED//\//-}"
+MEMORY_DIR="${MEMORY_DIR:-$CLAUDE_HOME/projects/$HOME_ENCODED/memory}"
 INSTALLED_JSON="$CLAUDE_HOME/plugins/installed_plugins.json"
 CLAUDE_CONFIG="$HOME/.claude.json"
 
@@ -106,10 +112,10 @@ EOF
 # LAYER 2 · Seven gotcha detectors
 # Each prints concrete evidence (paths, names) the user can act on.
 # ============================================================================
-echo "PART 2 · Nine gotcha detectors (with locatable evidence)"
+echo "PART 2 · Eight gotcha detectors (with locatable evidence)"
 echo "          (dead symlinks · _archive trap · sub-plugin explosion ·"
 echo "           same-name plugin · project-scope MCP · zombie configs ·"
-echo "           archive layout · MCP zombie resurrection · embedded sub-skills)"
+echo "           MCP zombie resurrection · embedded sub-skills)"
 echo ""
 
 issues=0
@@ -327,25 +333,10 @@ if [ ${#zombie_terms[@]} -gt 0 ]; then
   print_finding "Zombie configs (CLAUDE.md ↔ MEMORY conflict)" "$details"
 fi
 
-# ---------- Gotcha 7: archive in wrong location ----------
-wrong_archives=()
-for d in "$CLAUDE_HOME"/skills/_archive* "$CLAUDE_HOME"/commands/_archive* \
-         "$CLAUDE_HOME"/skills/archive* "$CLAUDE_HOME"/commands/archive*; do
-  [ -e "$d" ] && wrong_archives+=("$d")
-done
-# These are caught by Gotcha 2 but listed here as policy violation
-# (intentionally complementary — Gotcha 2 reports the trap, Gotcha 7
-# checks adherence to the recommended layout from references/archive-layout.md)
-if [ ${#wrong_archives[@]} -eq 0 ]; then
-  # Look for proper Boris-Token-Slim archive existence — informational only
-  if ls -d "$CLAUDE_HOME"/_tokenslim_archive_* >/dev/null 2>&1; then
-    arch_count=$(ls -d "$CLAUDE_HOME"/_tokenslim_archive_* 2>/dev/null | wc -l | tr -d ' ')
-    arch_size=$(du -sh "$CLAUDE_HOME"/_tokenslim_archive_* 2>/dev/null | tail -1 | awk '{print $1}')
-    : # no finding; show summary at end
-  fi
-fi
-
-# ---------- Gotcha 8: MCP zombie resurrection (claude mcp remove not sticky) ----------
+# ---------- Gotcha 7: MCP zombie resurrection (claude mcp remove not sticky) ----------
+# (Gotcha 2 already covers archive-in-wrong-location for commands/ and skills/.
+# A separate "wrong archive layout" detector would only ever fire AS WELL AS
+# Gotcha 2, never alone — so we don't carry a redundant numbered slot.)
 if [ -f "$CLAUDE_CONFIG" ] && command -v claude >/dev/null 2>&1; then
   # Compare what `claude mcp list` shows vs what's in ~/.claude.json
   config_mcps=$(py "
@@ -361,29 +352,35 @@ print('\n'.join(sorted(mcps)))
   plugin_mcps=""
   if [ -d "$CLAUDE_HOME/plugins/cache" ]; then
     plugin_mcps=$(find "$CLAUDE_HOME/plugins/cache" -name "plugin.json" -exec \
-      grep -lE '"mcpServers"|"mcp"' {} + 2>/dev/null | head -10)
+      grep -lE '"mcpServers"|"mcp"' {} + 2>/dev/null)
   fi
   if [ -n "$plugin_mcps" ]; then
-    # For each plugin manifest with mcpServers, list which MCPs it declares
-    declared=$(py "
-import json, sys, glob
-manifests = '''$plugin_mcps'''.strip().split('\n')
+    # Pass manifest paths via stdin as JSON array (avoid f-string injection
+    # from filenames containing quotes/backslashes/newlines).
+    declared=$(printf '%s\n' "$plugin_mcps" | python3 -c "
+import json, sys
+manifests = [line for line in sys.stdin.read().splitlines() if line]
 out = []
 for path in manifests:
-    if not path: continue
     try:
         d = json.load(open(path))
     except Exception:
         continue
-    mcps = list((d.get('mcpServers') or {}).keys()) + list((d.get('mcp') or {}).keys() if isinstance(d.get('mcp'), dict) else [])
-    if mcps:
-        # Walk up two levels to get plugin@marketplace name
-        parts = path.split('/cache/')[1].split('/')
-        plugin = parts[1] if len(parts) > 1 else parts[0]
-        marketplace = parts[0]
-        out.append(f'{plugin}@{marketplace}|{\",\".join(mcps)}')
+    mcp_block = d.get('mcpServers') or {}
+    extra = d.get('mcp')
+    mcps = list(mcp_block.keys())
+    if isinstance(extra, dict):
+        mcps += list(extra.keys())
+    if not mcps:
+        continue
+    parts = path.split('/cache/')
+    if len(parts) < 2: continue
+    seg = parts[1].split('/')
+    marketplace = seg[0]
+    plugin = seg[1] if len(seg) > 1 else seg[0]
+    out.append(f'{plugin}@{marketplace}|{\",\".join(mcps)}')
 print('\n'.join(out))
-")
+" 2>/dev/null)
     if [ -n "$declared" ]; then
       details="Plugins that auto-register MCP servers (will respawn after 'claude mcp remove'):"
       details+=$'\n'""
@@ -399,7 +396,7 @@ print('\n'.join(out))
   fi
 fi
 
-# ---------- Gotcha 9: plugin embeds many SKILL.md files (hidden sub-skills) ----------
+# ---------- Gotcha 8: plugin embeds many SKILL.md files (hidden sub-skills) ----------
 if [ -d "$CLAUDE_HOME/plugins/cache" ] && [ -f "$INSTALLED_JSON" ]; then
   installed_set=$(py "
 import json
