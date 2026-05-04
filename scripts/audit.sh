@@ -91,7 +91,7 @@ cat <<EOF
 ║         Boris-Token-Slim · Claude Code Overhead Audit                ║
 ╚══════════════════════════════════════════════════════════════════════╝
 
-PART 1 · Nine static metrics
+PART 1 · Seven static metrics
 
 Metric                              Value        Target       Status
 ─────────────────────────────────── ──────────── ──────────── ──────────

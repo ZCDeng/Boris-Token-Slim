@@ -1,0 +1,77 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  shell:
+    name: shell scripts (shellcheck + bash -n)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update -y && sudo apt-get install -y shellcheck
+      - name: bash syntax check
+        run: |
+          bash -n scripts/audit.sh
+          bash -n scripts/archive-helper.sh
+      - name: shellcheck (warnings as info, errors fail)
+        run: |
+          # SC2086 (word splitting), SC2155 (declare+assign), SC2034 (unused) are noisy in audit-style scripts.
+          # We surface them but don't fail the build on them — only on actual errors (SC2xxx severity error).
+          shellcheck --severity=error scripts/audit.sh scripts/archive-helper.sh
+
+  python:
+    name: python (compile + pytest)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install pytest
+        run: pip install pytest
+      - name: compile
+        run: python -m compileall scripts/ tests/
+      - name: pytest
+        run: python -m pytest tests/ -v
+
+  smoke-audit:
+    name: audit.sh smoke (Linux fixture HOME)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build minimal fake CLAUDE_HOME
+        run: |
+          export FAKE_HOME="$RUNNER_TEMP/fake-claude"
+          mkdir -p "$FAKE_HOME"/{skills,commands,plugins/cache}
+          # Empty CLAUDE.md / MEMORY.md so script has files to size
+          echo "" > "$FAKE_HOME/CLAUDE.md"
+          mkdir -p "$FAKE_HOME/projects/-home-runner/memory"
+          echo "" > "$FAKE_HOME/projects/-home-runner/memory/MEMORY.md"
+          # Empty installed_plugins.json
+          echo '{"plugins":{}}' > "$FAKE_HOME/plugins/installed_plugins.json"
+          # Add one dead symlink to verify Gotcha #1
+          ln -s /nonexistent-target "$FAKE_HOME/skills/dead-link"
+      - name: Run audit.sh against fixture HOME
+        env:
+          CLAUDE_HOME: ${{ runner.temp }}/fake-claude
+        run: |
+          # Override $HOME-derived MEMORY_DIR by passing CLAUDE_HOME env.
+          # Audit script must not crash even with minimal fixture.
+          bash scripts/audit.sh > audit-output.txt
+          cat audit-output.txt
+      - name: Verify dead symlink was detected
+        run: grep -q "Dead symlinks" audit-output.txt
+      - name: Verify Part 1 metrics rendered
+        run: grep -q "PART 1 · Seven static metrics" audit-output.txt

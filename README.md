@@ -1,5 +1,8 @@
 # Boris-Token-Slim
 
+[![ci](https://github.com/ZCDeng/Boris-Token-Slim/actions/workflows/ci.yml/badge.svg)](https://github.com/ZCDeng/Boris-Token-Slim/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 > Cut the invisible tax Claude Code pays before every prompt.
 > 砍掉 Claude Code 每次请求前的隐性税。
 
@@ -230,13 +233,27 @@ The article also recommends three behavioral habits this skill won't do for you:
 
 ## License
 
-MIT — see `LICENSE`.
+MIT — see [`LICENSE`](LICENSE).
+
+## Security
+
+Never `rm -rf`; everything goes through archive. See [`SECURITY.md`](SECURITY.md) for the full policy and threat model.
 
 ## Contributing
 
-PRs welcome. Especially:
-- Additional gotchas you've hit on your own machine
-- Audit metrics the script currently misses
-- Localization (non-中文 prompt text)
+PRs welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for local dev workflow, lint commands, and how to add a new gotcha detector.
 
-Report token-waste patterns with reproducible evidence (proxy log excerpts, `ls` output, config snippets). Keep recommendations conservative — default to "archive", never "delete".
+Two things especially valued:
+- **New gotcha reports** with reproducible evidence (proxy log excerpts, `ls` output, config snippets)
+- **New detectors** that print actionable evidence — paths, plugin names, install state — not just counts
+
+Iron rule: archive, never delete.
+
+## Tests
+
+```bash
+pip install pytest
+python3 -m pytest tests/ -v
+```
+
+CI runs shellcheck + Python compile + pytest on Python 3.10/3.11/3.12 + a smoke audit against a fixture `CLAUDE_HOME` on every PR.
