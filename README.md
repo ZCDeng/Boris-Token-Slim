@@ -5,7 +5,69 @@
 
 A Claude Code [skill](https://docs.claude.com/en/docs/claude-code/skills) that audits and trims the hidden overhead in your `~/.claude/` setup — bloated `CLAUDE.md`, stale `MEMORY.md`, plugin explosion, always-on MCP servers, dead symlinks, and the `scientific-skills` 142-pack that everyone installs and never uses.
 
-Inspired by [this article](https://youmind.com/s/MieRjYvn3NFzLd) which proxy-logged 430 hours of Claude Code and found **73% of tokens were waste**. Extended with four real-world gotchas the article doesn't mention (most notably: `commands/_archive/` still gets scanned by the harness, so moving stuff there makes names *longer*).
+Inspired by [this article](https://youmind.com/s/MieRjYvn3NFzLd) which proxy-logged 430 hours of Claude Code and found **73% of tokens were waste**. Extended with seven real-world gotchas the article doesn't mention (most notably: `commands/_archive/` still gets scanned by the harness, so moving stuff there makes names *longer*).
+
+---
+
+## 中文介绍
+
+有人用 HTTP proxy 拦了 **430 小时**的 Claude Code 流量、6M input tokens、$1340 API 支出，分类统计后发现：真正回答你问题的 productive token 只占 **27%**，剩下 **73% 花在你看不见的 9 个地方**。
+
+- 你还没打一个字，**~14%** 额度已经花在加载 `CLAUDE.md` 上
+- 对话到第 30 条，每条都在重读前面 29 条——**~13%** 全是重读
+- 装了 4 个插件你早忘了的，每次请求先注入 **~11%** 的 hook 上下文
+- 12 个 MCP 常驻，每个每次都送 tool schema——**~6%** 的税
+- 221 个 skill 清单占位，其中 81 个 symlink 指向已被删目录（本 skill 作者实测）
+- 你抱怨 "Claude 变笨了"——绝大多数时候不是模型退化，是你的 overhead 长了
+
+**如果你每周撞 Max 额度超过一次，你至少中了 4 条，大概率 7 条。**
+
+---
+
+### 这个 skill 做什么
+
+一键扫 `~/.claude/` 给 9 项指标诊断表，然后**交互式**引导你清理（**不是自动删**）：
+
+| 指标 | 阈值 | 常见超标原因 |
+|------|------|------|
+| `CLAUDE.md` | < 1500 字节 | 照搬 Anthropic 博客最佳实践、已废弃模块的配置仍在加载 |
+| `MEMORY.md` | < 2000 字节 | 把"当前项目状态"写进去，过期即垃圾 |
+| 插件数 | < 15 | 金融套件 7 件套、HuggingFace 8 子件、同名插件不同市场装两次 |
+| MCP 常驻 | < 6 | `task-master-ai` 和 harness 内置 TaskCreate 重复、低频 MCP 常驻 |
+| Skill 数 | < 50 | scientific-skills 142 包一次性挂载、死 symlink 占清单位置 |
+| 死 symlink | = 0 | 指向 `~/.claude/.agents/skills/*` 等已删目录的僵尸链接 |
+
+### 独有的 7 个坑（原文没提）
+
+1. **`commands/_archive/` 陷阱**——挪进去名字反而更长（被前缀成 `_archive:xxx:yyy`），必须挪出 `commands/` 目录才真正隔离
+2. **死 symlink 占位**——81 个指向不存在目录的 symlink 仍在 skill 清单里（作者实测）
+3. **Sub-plugin 爆炸**——装 `huggingface-skills` 出来 8 个兄弟插件，每个独立占 hook 预算
+4. **同名 plugin 装两次**——同一 plugin 被多个 marketplace 收录，不小心装了两份
+5. **MCP 藏在 project scope**——`claude mcp list` 显示 6 个，`~/.claude.json` 根下只有 2 个，剩下在 `projects[<path>].mcpServers` 里悄悄激活
+6. **重启才能看到真实 skill 清单**——Claude Code 只在 session 启动时扫 skill，清理后的变化当前 session 看不到
+7. **僵尸配置**——`MEMORY.md` 写着"2026-04-XX 已移除 XX 模块"，但 `CLAUDE.md` 里那个模块的 3 段配置还在每轮加载
+
+### 铁律：归档不删除
+
+所有动作都 `mv` 到 `~/.claude/_tokenslim_archive_<YYYYMMDD>/`，反悔能 `mv` 回来。
+
+### 30 秒体验
+
+只看报告不做修改：
+```bash
+git clone https://github.com/ZCDeng/Boris-Token-Slim.git
+bash Boris-Token-Slim/scripts/audit.sh
+```
+
+接入 Claude Code 做交互清理：
+```bash
+ln -s "$(pwd)/Boris-Token-Slim" ~/.claude/skills/Boris-Token-Slim
+# Claude Code 里说："/Boris-Token-Slim" 或 "审计我的 claude code token 消耗"
+```
+
+作者本机实测：`CLAUDE.md -83% / MEMORY.md -79% / 插件 -55% / skill 清单 -72%`，每轮请求基线回收 ~8000-10000 tokens。
+
+---
 
 ## Install
 
