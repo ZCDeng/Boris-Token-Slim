@@ -57,7 +57,7 @@ Two-step process:
    - New section `# ---------- Gotcha N: short title ----------`
    - Print **locatable evidence** with `print_finding`. Show paths, plugin names, line numbers. Not "you have N items" — show *which* N items.
    - Cross-reference install state when relevant (e.g. installed vs cache-residue)
-   - Update the count in the header (`Eight gotcha detectors` → `Nine ...`)
+   - Update the count in the header (`Eight gotcha detectors` → `Nine ...`) and the closing `(All eight detectors clean.)` line in `audit.sh`
    - Update README detector table
 
 ## Adding a fixture for `analyze.py`
@@ -84,7 +84,7 @@ Open a GitHub issue with:
 - What `audit.sh` / `analyze.py` reported (or didn't)
 - Output of the reproducer (`ls -la ~/.claude/skills/ | head`, etc.)
 
-Issues that surface a real new pattern are how we got from 9 → 16 detectors in the first month. They count as much as PRs.
+Issues that surface a real new pattern are how the gotcha catalog grows. A reproducible report counts as much as a PR — the detector can come later.
 
 ## Code of conduct
 

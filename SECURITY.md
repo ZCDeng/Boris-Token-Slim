@@ -16,7 +16,9 @@ If you ever see a PR that adds `rm -rf` to user-facing scripts, **block it**.
 
 ## Reporting a vulnerability
 
-Open a GitHub issue with `[security]` in the title, **or** email the maintainer (see `LICENSE` for handle).
+Open a GitHub issue with `[security]` in the title at https://github.com/ZCDeng/Boris-Token-Slim/issues/new — the maintainer monitors this repo's issues.
+
+For sensitive disclosures that shouldn't be public, GitHub Security Advisories work too: https://github.com/ZCDeng/Boris-Token-Slim/security/advisories/new — these are private until you choose to publish.
 
 What counts as a security issue here:
 

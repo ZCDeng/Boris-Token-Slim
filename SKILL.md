@@ -29,7 +29,7 @@ user-invocable: true
 bash scripts/audit.sh
 ```
 
-输出 9 个指标对比表（CLAUDE.md 大小 / MEMORY.md 大小 / 插件数 / MCP 数 / 本地 skill 数 / 死 symlink 数 / commands 下子目录数 / 活动 hooks / 每项的推荐上限）。把表格直接贴给用户，让他看见基线。
+输出 7 行核心指标 + 8 个 gotcha 检测结果（指标包括 CLAUDE.md / MEMORY.md 大小、插件数、MCP 数、本地 skill 数、commands 下子目录数、活动 hooks，附每项推荐上限；gotcha 包括死 symlink、_archive 陷阱、sub-plugin 爆炸等）。把表格直接贴给用户，让他看见基线。
 
 ### Phase 0.5: 回溯分析过往 session（可选但推荐）
 
@@ -45,7 +45,7 @@ python3 scripts/analyze.py --days 30
 
 ### Phase 1: 确认范围
 
-向用户展示基线 + 本 skill 将按 4 步清理：
+向用户展示基线 + 本 skill 将按 4-5 步清理：
 1. 插件清理（最高 ROI）
 2. MEMORY.md 索引化
 3. CLAUDE.md 精简
@@ -60,7 +60,7 @@ python3 scripts/analyze.py --days 30
 
 #### 铁律 1：归档不删除
 
-永远 `mv` 到 `~/.claude/_archive_YYYYMMDD/` 子目录，**绝不 `rm`**。
+永远 `mv` 到 `~/.claude/_tokenslim_archive_<YYYYMMDD>/` 子目录，**绝不 `rm`**。
 用户如果发现删错了，能 `mv` 回来。
 
 ```bash

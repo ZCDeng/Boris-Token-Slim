@@ -35,7 +35,7 @@ count_dir() {
 py() { python3 -c "$1" 2>/dev/null; }
 
 # ============================================================================
-# LAYER 1 · Nine static metrics
+# LAYER 1 · Seven static metrics
 # ============================================================================
 claude_md_bytes=$(bytes_of "$CLAUDE_HOME/CLAUDE.md")
 
@@ -109,7 +109,7 @@ Metric                              Value        Target       Status
 EOF
 
 # ============================================================================
-# LAYER 2 · Seven gotcha detectors
+# LAYER 2 · Eight gotcha detectors
 # Each prints concrete evidence (paths, names) the user can act on.
 # ============================================================================
 echo "PART 2 · Eight gotcha detectors (with locatable evidence)"
@@ -427,8 +427,9 @@ print(' '.join(k.split('@')[0] for k in d.get('plugins',{}).keys()))
     done <<< "$embeds"
     details+=$'\n'""
     details+=$'\n'"For UNINSTALLED entries: cache remains on disk under ~/.claude/plugins/cache/."
-    details+=$'\n'"  Safe to remove the directory once you confirm the plugin is gone:"
-    details+=$'\n'"    rm -rf ~/.claude/plugins/cache/<marketplace>/<plugin-name>"
+    details+=$'\n'"  Per iron rule 1 (archive, never delete), move — don't remove:"
+    details+=$'\n'"    ARCH=~/.claude/_tokenslim_archive_\$(date +%Y%m%d)/cache && mkdir -p \"\$ARCH\""
+    details+=$'\n'"    mv ~/.claude/plugins/cache/<marketplace>/<plugin-name> \"\$ARCH/\""
     details+=$'\n'""
     details+=$'\n'"For installed entries: consider whether you actually use all bundled skills."
     print_finding "Plugin embeds many sub-skills (hidden inflation + cache residue)" "$details"
@@ -439,7 +440,7 @@ fi
 # Summary
 # ============================================================================
 if [ "$issues" -eq 0 ]; then
-  echo "  ✅ No gotchas detected. (All seven detectors clean.)"
+  echo "  ✅ No gotchas detected. (All eight detectors clean.)"
   echo ""
 fi
 

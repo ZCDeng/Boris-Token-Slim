@@ -249,12 +249,30 @@ def render_text(sessions: list[SessionStats], top_n: int) -> str:
     push(f"Total assistant turns:   {total_a_turns:,}")
     push(f"Estimated total cost:    {fmt_usd(total_cost)}")
     push("")
-    push("─── Token totals ───────────────────────────────────────────────────────")
-    push(f"  Raw input               {humanize(total_inp):>10}    {fmt_usd(total_inp * 3 / 1_000_000):>8}  (full price)")
-    push(f"  Cache read              {humanize(total_cr):>10}    {fmt_usd(total_cr * 3 * 0.1 / 1_000_000):>8}  (0.1x — cheap)")
-    push(f"  Cache write 5m TTL      {humanize(total_c5):>10}    {fmt_usd(total_c5 * 3 * 1.25 / 1_000_000):>8}  (1.25x)")
-    push(f"  Cache write 1h TTL      {humanize(total_c1):>10}    {fmt_usd(total_c1 * 3 * 2 / 1_000_000):>8}  (2x)")
-    push(f"  Output                  {humanize(total_out):>10}    {fmt_usd(total_out * 15 / 1_000_000):>8}")
+
+    # Compute token-weighted blended input/output prices across the actual
+    # session model mix, so the breakdown table reconciles with the headline
+    # Estimated total cost — a Sonnet-only formula misprices Opus-heavy runs
+    # by 5x.
+    weighted_in = 0.0
+    weighted_out_cost = 0.0
+    weighted_in_tokens = 0
+    weighted_out_tokens = 0
+    for s in sessions:
+        in_p, out_p = price_for(s.model)
+        weighted_in += (s.input_tokens + s.cache_read + s.cache_write_5m + s.cache_write_1h) * in_p
+        weighted_in_tokens += (s.input_tokens + s.cache_read + s.cache_write_5m + s.cache_write_1h)
+        weighted_out_cost += s.output_tokens * out_p
+        weighted_out_tokens += s.output_tokens
+    blended_in = (weighted_in / weighted_in_tokens) if weighted_in_tokens else PRICES["sonnet"][0]
+    blended_out = (weighted_out_cost / weighted_out_tokens) if weighted_out_tokens else PRICES["sonnet"][1]
+
+    push("─── Token totals (blended across model mix) ────────────────────────────")
+    push(f"  Raw input               {humanize(total_inp):>10}    {fmt_usd(total_inp * blended_in / 1_000_000):>8}  (full price)")
+    push(f"  Cache read              {humanize(total_cr):>10}    {fmt_usd(total_cr * blended_in * 0.1 / 1_000_000):>8}  (0.1x — cheap)")
+    push(f"  Cache write 5m TTL      {humanize(total_c5):>10}    {fmt_usd(total_c5 * blended_in * 1.25 / 1_000_000):>8}  (1.25x)")
+    push(f"  Cache write 1h TTL      {humanize(total_c1):>10}    {fmt_usd(total_c1 * blended_in * 2 / 1_000_000):>8}  (2x)")
+    push(f"  Output                  {humanize(total_out):>10}    {fmt_usd(total_out * blended_out / 1_000_000):>8}")
     push("")
     push("─── Cache health ──────────────────────────────────────────────────────")
     flag_hit = "✅" if cache_hit >= 80 else ("⚠️ " if cache_hit >= 50 else "🚨")
