@@ -31,6 +31,18 @@ bash scripts/audit.sh
 
 输出 9 个指标对比表（CLAUDE.md 大小 / MEMORY.md 大小 / 插件数 / MCP 数 / 本地 skill 数 / 死 symlink 数 / commands 下子目录数 / 活动 hooks / 每项的推荐上限）。把表格直接贴给用户，让他看见基线。
 
+### Phase 0.5: 回溯分析过往 session（可选但推荐）
+
+```bash
+python3 scripts/analyze.py --days 30
+```
+
+这会扫 `~/.claude/projects/**/*.jsonl` 给出过去 30 天的真实 token 消耗、cache 命中、最贵 session 排行、Pattern 2/4 风险标记。**与 audit.sh 互补**：
+- audit.sh 看"现在的 overhead 配置"（静态）
+- analyze.py 看"过去花了多少钱、哪些 session 最浪费"（历史）
+
+如果用户问"哪个项目/会话最烧 token"，跑 analyze.py 而不是 audit.sh。如果用户问"该清理什么"，跑 audit.sh。
+
 ### Phase 1: 确认范围
 
 向用户展示基线 + 本 skill 将按 4 步清理：
@@ -184,7 +196,9 @@ python3 -c "import json; d=json.load(open('/Users/\$USER/.claude.json')); print(
 - `references/9-patterns.md` — 原文 9 个浪费模式速查
 - `references/gotchas.md` — 本 skill 作者踩过的坑（dead symlinks、\_archive 位置、sub-plugin 爆炸）
 - `references/archive-layout.md` — 归档目录结构规范
+- `references/methodology.md` — analyze.py 的数据源/计费公式/方法学
 - `scripts/audit.sh` — 一键审计脚本，输出 9 指标表
+- `scripts/analyze.py` — 回溯解析 transcript JSONL，给出 cost/cache/Pattern 风险报告
 - `scripts/archive-helper.sh` — 批量归档工具
 
 ## 非目标

@@ -159,4 +159,5 @@ echo "Recommendations:"
 
 echo ""
 echo "Run 'claude' and say \"/Boris-Token-Slim\" to start guided cleanup."
+echo "Run 'python3 scripts/analyze.py' for retrospective per-session token analysis."
 echo ""

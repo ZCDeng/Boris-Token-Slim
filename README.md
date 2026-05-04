@@ -97,6 +97,40 @@ bash ~/projects/Boris-Token-Slim/scripts/audit.sh
 
 Outputs a dashboard of your current overhead vs. recommended thresholds. No changes made.
 
+### Option C: Retrospective transcript analysis (no Claude needed)
+
+```bash
+python3 ~/projects/Boris-Token-Slim/scripts/analyze.py --days 30
+```
+
+Parses every Claude Code session transcript in `~/.claude/projects/` and gives you:
+
+- Total cost estimate (using Anthropic's published pricing × the `usage` field Claude Code already records)
+- Cache hit rate, 5m vs 1h TTL ratio
+- Top N most expensive sessions
+- Pattern 2 risk: sessions ≥ 30 turns
+- Pattern 4 risk: sessions with cache hit < 50%
+- Counterfactual: how much you'd save if cache hit reached 85%
+
+`--json` mode emits stable schema for CI / cron pipelines. See [`references/methodology.md`](references/methodology.md) for the math.
+
+---
+
+## How this compares to Token Optimizer
+
+[`alexgreensh/token-optimizer`](https://github.com/alexgreensh/token-optimizer) is the leading live monitoring tool in this space (12 hooks, live dashboard, Smart Compaction). This skill takes a complementary approach:
+
+| | Token Optimizer | Boris-Token-Slim |
+|---|---|---|
+| **Mode** | Live monitoring | Audit + retrospective analysis |
+| **Architecture** | 12 hooks (PreTool, PostTool, SessionStart, PreCompact, …) | Zero hooks. Pure scripts. |
+| **Self-overhead** | Each Read/Bash/Edit/Agent triggers a Python launcher | None |
+| **Time window** | Since install | All sessions ever recorded |
+| **License** | PolyForm-Noncommercial | MIT |
+| **Best for** | Continuous live coaching | Quarterly cleanup, post-restart audit, one-time reset |
+
+Use both. Token Optimizer is your dashboard. Boris-Token-Slim is your annual physical.
+
 ## What it audits
 
 | # | Pattern | Threshold |
