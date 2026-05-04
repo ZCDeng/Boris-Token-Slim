@@ -1,0 +1,5 @@
+# archive and OS cruft
+_tokenslim_archive_*/
+.DS_Store
+*.swp
+*.bak
