@@ -34,6 +34,16 @@ count_dir() {
 
 py() { python3 -c "$1" 2>/dev/null; }
 
+# pyf() — like py() but passes file paths as argv instead of interpolating them
+# into the Python source. Use for any python3 invocation that needs to read a
+# file. The script template should reference the path via sys.argv[1..N].
+# Rationale: $HOME or filenames containing single quotes break the naive
+# `open('$VAR')` pattern, silently producing empty output via 2>/dev/null.
+pyf() {
+  local script="$1"; shift
+  python3 -c "$script" "$@" 2>/dev/null
+}
+
 # ============================================================================
 # LAYER 1 · Seven static metrics
 # ============================================================================
@@ -48,14 +58,20 @@ memory_extra_files=0
 [ -n "$memory_md" ] && memory_extra_files=$(find "$(dirname "$memory_md")" -maxdepth 1 -name "*.md" ! -name "MEMORY.md" 2>/dev/null | wc -l | tr -d ' ')
 
 plugin_count=0
-[ -f "$INSTALLED_JSON" ] && plugin_count=$(py "import json; print(len(json.load(open('$INSTALLED_JSON')).get('plugins',{})))")
+[ -f "$INSTALLED_JSON" ] && plugin_count=$(pyf 'import json,sys; d=json.load(open(sys.argv[1])); p=d.get("plugins") if isinstance(d,dict) else None; print(len(p) if isinstance(p,dict) else 0)' "$INSTALLED_JSON")
 plugin_count="${plugin_count:-0}"
 
 mcp_user=0
 mcp_project=0
 if [ -f "$CLAUDE_CONFIG" ]; then
-  mcp_user=$(py "import json; d=json.load(open('$CLAUDE_CONFIG')); print(len(d.get('mcpServers',{})))")
-  mcp_project=$(py "import json; d=json.load(open('$CLAUDE_CONFIG')); print(sum(len(p.get('mcpServers',{})) for p in d.get('projects',{}).values()))")
+  mcp_user=$(pyf 'import json,sys; d=json.load(open(sys.argv[1])); m=d.get("mcpServers") if isinstance(d,dict) else None; print(len(m) if isinstance(m,dict) else 0)' "$CLAUDE_CONFIG")
+  mcp_project=$(pyf 'import json,sys; d=json.load(open(sys.argv[1])); projs=d.get("projects") if isinstance(d,dict) else {}; total=0
+if isinstance(projs,dict):
+    for p in projs.values():
+        if isinstance(p,dict):
+            m=p.get("mcpServers")
+            if isinstance(m,dict): total+=len(m)
+print(total)' "$CLAUDE_CONFIG")
 fi
 mcp_user="${mcp_user:-0}"
 mcp_project="${mcp_project:-0}"
@@ -80,7 +96,7 @@ fi
 hooks_active=0
 for f in "$CLAUDE_HOME/settings.json" "$CLAUDE_HOME/settings.local.json"; do
   [ -f "$f" ] || continue
-  c=$(py "import json; d=json.load(open('$f')); h=d.get('hooks',{}); print(sum(len(v) if isinstance(v,list) else 1 for v in h.values()))")
+  c=$(pyf 'import json,sys; d=json.load(open(sys.argv[1])); h=d.get("hooks",{}); print(sum(len(v) if isinstance(v,list) else 1 for v in h.values()))' "$f")
   hooks_active=$((hooks_active + ${c:-0}))
 done
 
@@ -199,10 +215,13 @@ fi
 
 # ---------- Gotcha 3: sub-plugin explosion ----------
 if [ -f "$INSTALLED_JSON" ]; then
-  explosions=$(py "
-import json
-d = json.load(open('$INSTALLED_JSON'))
-names = list(d.get('plugins', {}).keys())
+  explosions=$(pyf "
+import json, sys
+d = json.load(open(sys.argv[1]))
+if not isinstance(d, dict): sys.exit(0)
+plugins = d.get('plugins') or {}
+if not isinstance(plugins, dict): sys.exit(0)
+names = list(plugins.keys())
 from collections import defaultdict
 groups = defaultdict(list)
 for full in names:
@@ -223,7 +242,7 @@ for prefix, members in sorted(groups.items(), key=lambda x: -len(x[1])):
     seen.add(sig)
     if len(members) >= 4:
         print(f'{prefix}|{len(members)}|' + ','.join(members))
-")
+" "$INSTALLED_JSON")
   if [ -n "$explosions" ]; then
     details="Detected plugin family clusters with ≥4 siblings (likely a single umbrella plugin pulling in subs):"
     details+=$'\n'""
@@ -246,10 +265,13 @@ fi
 
 # ---------- Gotcha 4: same-name plugin from different marketplaces ----------
 if [ -f "$INSTALLED_JSON" ]; then
-  dups=$(py "
-import json
-d = json.load(open('$INSTALLED_JSON'))
-names = [k.split('@') for k in d.get('plugins', {})]
+  dups=$(pyf "
+import json, sys
+d = json.load(open(sys.argv[1]))
+if not isinstance(d, dict): sys.exit(0)
+plugins = d.get('plugins') or {}
+if not isinstance(plugins, dict): sys.exit(0)
+names = [k.split('@') for k in plugins.keys()]
 from collections import defaultdict
 seen = defaultdict(list)
 for parts in names:
@@ -259,7 +281,7 @@ for parts in names:
 for bare, mps in seen.items():
     if len(mps) > 1:
         print(f'{bare}|' + ','.join(mps))
-")
+" "$INSTALLED_JSON")
   if [ -n "$dups" ]; then
     details="Same plugin name installed from MULTIPLE marketplaces (silent token duplication):"
     details+=$'\n'""
@@ -276,15 +298,19 @@ fi
 
 # ---------- Gotcha 5: project-scope MCP hidden in ~/.claude.json ----------
 if [ -f "$CLAUDE_CONFIG" ] && [ "$mcp_project" -gt 0 ]; then
-  proj_mcps=$(py "
-import json
-d = json.load(open('$CLAUDE_CONFIG'))
-for p, pd in d.get('projects', {}).items():
-    mcps = pd.get('mcpServers', {})
-    if mcps:
-        for name in mcps:
-            print(f'{p}|{name}')
-")
+  proj_mcps=$(pyf "
+import json, sys
+d = json.load(open(sys.argv[1]))
+if not isinstance(d, dict): sys.exit(0)
+projects = d.get('projects') or {}
+if not isinstance(projects, dict): sys.exit(0)
+for p, pd in projects.items():
+    if not isinstance(pd, dict): continue
+    mcps = pd.get('mcpServers') or {}
+    if not isinstance(mcps, dict): continue
+    for name in mcps:
+        print(f'{p}|{name}')
+" "$CLAUDE_CONFIG")
   if [ -n "$proj_mcps" ]; then
     details="MCP servers configured in PROJECT scope (not visible via 'claude mcp remove' from other dirs):"
     details+=$'\n'""
@@ -303,17 +329,55 @@ fi
 # ---------- Gotcha 6: zombie configs (CLAUDE.md mentions a module MEMORY says is removed) ----------
 zombie_terms=()
 if [ -f "$memory_md" ] && [ -f "$CLAUDE_HOME/CLAUDE.md" ]; then
-  # Look for "removed" / "已移除" / "deprecated" / "已废弃" patterns in memory-dir markdown,
-  # extract the module name, then grep CLAUDE.md for it.
-  candidates=$(grep -ohiE '([a-zA-Z][a-zA-Z0-9_-]{3,30})[^.]{0,40}(已移除|已废弃|removed|deprecated|completely removed)' \
-    "$memory_md" "$(dirname "$memory_md")"/*.md 2>/dev/null | \
-    grep -ohE '[a-zA-Z][a-zA-Z0-9_-]{3,30}' | sort -u)
+  # Look for "X is removed/deprecated/已移除/已废弃" patterns in memory markdown
+  # files. Only treat the FIRST identifier-shaped token at each match as a
+  # candidate module name — extracting all 4–30-letter words from the match
+  # context picks up English filler like "been" / "already" and produces
+  # noisy false positives.
+  #
+  # The Python helper extracts module names cleanly. The fallback grep handles
+  # systems without python3 in PATH (rare but possible).
+  if command -v python3 >/dev/null 2>&1; then
+    candidates=$(python3 - "$memory_md" "$(dirname "$memory_md")" <<'PYEOF' 2>/dev/null
+import os, re, sys
+mem = sys.argv[1]
+mem_dir = sys.argv[2]
+files = [mem]
+if os.path.isdir(mem_dir):
+    files += [os.path.join(mem_dir, f) for f in os.listdir(mem_dir)
+              if f.endswith('.md') and os.path.join(mem_dir, f) != mem]
+# Module name: identifier-shaped token at start of line OR following whitespace,
+# immediately followed by " is/was/has been ... removed/deprecated/已移除/已废弃"
+PATTERN = re.compile(
+    r'(?:^|[ \t`*-])([A-Za-z][A-Za-z0-9_-]{3,30})[ \t][^.\n\r]{0,40}?'
+    r'(?:已移除|已废弃|is removed|was removed|been removed|completely removed|is deprecated|was deprecated|been deprecated)',
+    re.IGNORECASE | re.MULTILINE,
+)
+seen = set()
+for path in files:
+    try:
+        with open(path, encoding='utf-8', errors='ignore') as f:
+            text = f.read()
+    except (OSError, IOError):
+        continue
+    for m in PATTERN.finditer(text):
+        seen.add(m.group(1))
+for t in sorted(seen):
+    print(t)
+PYEOF
+)
+  else
+    # Fallback: original two-grep pattern (noisier but works without python3).
+    candidates=$(grep -ohiE '([a-zA-Z][a-zA-Z0-9_-]{3,30})[^.]{0,40}(已移除|已废弃|removed|deprecated|completely removed)' \
+      "$memory_md" "$(dirname "$memory_md")"/*.md 2>/dev/null | \
+      grep -ohE '[a-zA-Z][a-zA-Z0-9_-]{3,30}' | sort -u)
+  fi
   for term in $candidates; do
-    # Skip super-common words
+    # Skip super-common English words that pass the regex but aren't module names
     case "$(echo "$term" | tr A-Z a-z)" in
-      removed|deprecated|module|skill|plugin|config|the|already|completely|note|fix|status|done) continue ;;
+      removed|deprecated|module|skill|plugin|config|the|already|completely|note|fix|status|done|been|have|has|was|were|that|this) continue ;;
     esac
-    if grep -qiE "\b$term\b" "$CLAUDE_HOME/CLAUDE.md" 2>/dev/null; then
+    if grep -qiE "\\b$term\\b" "$CLAUDE_HOME/CLAUDE.md" 2>/dev/null; then
       zombie_terms+=("$term")
     fi
   done
@@ -339,14 +403,23 @@ fi
 # Gotcha 2, never alone — so we don't carry a redundant numbered slot.)
 if [ -f "$CLAUDE_CONFIG" ] && command -v claude >/dev/null 2>&1; then
   # Compare what `claude mcp list` shows vs what's in ~/.claude.json
-  config_mcps=$(py "
-import json
-d = json.load(open('$CLAUDE_CONFIG'))
-mcps = set(d.get('mcpServers',{}).keys())
-for p, pd in d.get('projects',{}).items():
-    mcps |= set(pd.get('mcpServers',{}).keys())
+  # config_mcps is computed for documentation / future use; not directly compared
+  # against `claude mcp list` here (we instead grep plugin manifests below).
+  config_mcps=$(pyf "
+import json, sys
+d = json.load(open(sys.argv[1]))
+if not isinstance(d, dict): sys.exit(0)
+top = d.get('mcpServers') or {}
+mcps = set(top.keys()) if isinstance(top, dict) else set()
+projects = d.get('projects') or {}
+if isinstance(projects, dict):
+    for p, pd in projects.items():
+        if isinstance(pd, dict):
+            sub = pd.get('mcpServers') or {}
+            if isinstance(sub, dict):
+                mcps |= set(sub.keys())
 print('\n'.join(sorted(mcps)))
-")
+" "$CLAUDE_CONFIG")
   # Don't run claude mcp list (slow, may prompt) — instead grep plugin manifests
   # to detect MCPs registered via plugins (the actual root cause)
   plugin_mcps=""
@@ -366,9 +439,13 @@ for path in manifests:
         d = json.load(open(path))
     except Exception:
         continue
-    mcp_block = d.get('mcpServers') or {}
+    if not isinstance(d, dict):
+        continue
+    mcp_block = d.get('mcpServers')
     extra = d.get('mcp')
-    mcps = list(mcp_block.keys())
+    mcps = []
+    if isinstance(mcp_block, dict):
+        mcps += list(mcp_block.keys())
     if isinstance(extra, dict):
         mcps += list(extra.keys())
     if not mcps:
@@ -398,11 +475,14 @@ fi
 
 # ---------- Gotcha 8: plugin embeds many SKILL.md files (hidden sub-skills) ----------
 if [ -d "$CLAUDE_HOME/plugins/cache" ] && [ -f "$INSTALLED_JSON" ]; then
-  installed_set=$(py "
-import json
-d = json.load(open('$INSTALLED_JSON'))
-print(' '.join(k.split('@')[0] for k in d.get('plugins',{}).keys()))
-")
+  installed_set=$(pyf "
+import json, sys
+d = json.load(open(sys.argv[1]))
+if not isinstance(d, dict): sys.exit(0)
+plugins = d.get('plugins') or {}
+if not isinstance(plugins, dict): sys.exit(0)
+print(' '.join(k.split('@')[0] for k in plugins.keys()))
+" "$INSTALLED_JSON")
   embeds=$(for p in "$CLAUDE_HOME"/plugins/cache/*/*; do
     [ -d "$p" ] || continue
     plugin_name=$(basename "$p")
