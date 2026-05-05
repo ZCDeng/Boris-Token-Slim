@@ -66,7 +66,7 @@ Boris Cherny（Claude Code 作者）先在 podcast 里提出**9 模式分类框�
 
 只看报告不做修改：
 ```bash
-git clone https://github.com/ZCDeng/Boris-Token-Slim.git
+git clone --branch v0.1.0 https://github.com/ZCDeng/Boris-Token-Slim.git
 bash Boris-Token-Slim/scripts/audit.sh
 ```
 
@@ -85,7 +85,8 @@ ln -s "$(pwd)/Boris-Token-Slim" ~/.claude/skills/Boris-Token-Slim
 ### Option A: Use as a Claude Code skill
 
 ```bash
-git clone https://github.com/ZCDeng/Boris-Token-Slim.git ~/projects/Boris-Token-Slim
+# Pin to a tagged release (recommended for stable behavior)
+git clone --branch v0.1.0 https://github.com/ZCDeng/Boris-Token-Slim.git ~/projects/Boris-Token-Slim
 ln -s ~/projects/Boris-Token-Slim ~/.claude/skills/Boris-Token-Slim
 chmod +x ~/projects/Boris-Token-Slim/scripts/*.sh
 ```
