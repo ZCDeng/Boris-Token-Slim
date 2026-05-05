@@ -120,6 +120,17 @@ class SessionStats:
 # Parsing
 # ---------------------------------------------------------------------------
 def iter_session_files(since: datetime | None, project_filter: str | None) -> Iterator[Path]:
+    """Yield candidate session JSONL files.
+
+    The since-filter here is a CHEAP PRESCREEN by file mtime — it skips
+    files whose mtime is older than `since`, which is correct because
+    a file's mtime is always >= its newest message's timestamp. (A
+    long-running session that resumes will have its mtime updated.)
+
+    The PRECISE filter happens in main() after analyze_file() reads
+    `stats.last_ts` from the JSONL contents — that's the authoritative
+    cutoff. mtime is a 1000x cheaper first pass.
+    """
     if not PROJECTS_ROOT.exists():
         return
     for project_dir in PROJECTS_ROOT.iterdir():
@@ -137,8 +148,32 @@ def iter_session_files(since: datetime | None, project_filter: str | None) -> It
             yield jsonl
 
 
-def analyze_file(path: Path) -> SessionStats | None:
-    """Aggregate a single session file. Returns None for non-CC transcripts."""
+def parse_iso_timestamp(ts: str) -> datetime | None:
+    """Parse an ISO-8601 timestamp from a transcript message into UTC datetime.
+    Claude Code uses 'YYYY-MM-DDTHH:MM:SS.fffZ'. Returns None on failure.
+    """
+    if not ts:
+        return None
+    try:
+        # Replace trailing Z with +00:00 for fromisoformat compatibility on 3.10
+        normalized = ts.replace("Z", "+00:00") if ts.endswith("Z") else ts
+        dt = datetime.fromisoformat(normalized)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, TypeError):
+        return None
+
+
+def analyze_file(path: Path, since: datetime | None = None) -> SessionStats | None:
+    """Aggregate a single session file. Returns None for non-CC transcripts.
+
+    If `since` is provided, messages with timestamps older than that
+    cutoff are skipped during aggregation. This is essential for
+    long-running sessions that resume across many days — without it,
+    a `--days 7` report would still count tokens, MCP calls, and
+    duplicate reads from message #1 dating to weeks ago.
+    """
     stats = SessionStats(
         session_id=path.stem,
         project=path.parent.name,
@@ -159,6 +194,13 @@ def analyze_file(path: Path) -> SessionStats | None:
 
                 ts = d.get("timestamp", "")
                 if ts:
+                    # Skip messages older than --since cutoff. We still update
+                    # first_ts/last_ts to reflect the FILTERED window so the
+                    # session is correctly displayed.
+                    if since is not None:
+                        msg_dt = parse_iso_timestamp(ts)
+                        if msg_dt is not None and msg_dt < since:
+                            continue
                     if not stats.first_ts:
                         stats.first_ts = ts
                     stats.last_ts = ts
@@ -227,7 +269,13 @@ def analyze_file(path: Path) -> SessionStats | None:
         return None
 
     if not saw_assistant_with_usage:
-        # Likely a non-CC JSONL (e.g. claude-mem observer logs)
+        # When `since` was applied, an empty result is a legitimate
+        # "session existed but all of it predates the cutoff" case —
+        # return an empty SessionStats so main() can count it as filtered.
+        # Without `since`, an empty result means the file is a non-CC JSONL
+        # (e.g. claude-mem observer logs) — return None to drop it.
+        if since is not None:
+            return stats
         return None
 
     in_p, out_p = price_for(stats.model)
@@ -536,10 +584,25 @@ def main() -> int:
         since = datetime.now(tz=timezone.utc) - timedelta(days=args.days)
 
     sessions: list[SessionStats] = []
+    skipped_by_timestamp = 0
     for f in iter_session_files(since=since, project_filter=args.project):
-        s = analyze_file(f)
-        if s:
-            sessions.append(s)
+        s = analyze_file(f, since=since)
+        if not s:
+            continue
+        # If the session has zero post-cutoff content (every message was
+        # older than --since), it's a long-running session whose mtime
+        # got bumped without new activity — skip it.
+        if since and s.assistant_turns == 0:
+            skipped_by_timestamp += 1
+            continue
+        sessions.append(s)
+
+    if skipped_by_timestamp and not args.json:
+        print(
+            f"# note: skipped {skipped_by_timestamp} session(s) whose last message "
+            f"predates --since cutoff (file mtime updated by resume but no new content)",
+            file=sys.stderr,
+        )
 
     if args.json:
         print(render_json(sessions))

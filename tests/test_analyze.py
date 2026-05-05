@@ -113,3 +113,83 @@ def test_render_text_includes_dashboard_for_one_session():
     assert "Boris-Token-Slim" in out
     assert "Cache hit rate" in out
     assert "Top" in out
+
+
+# ---------------------------------------------------------------------------
+# parse_iso_timestamp — for since-filtering by transcript content
+# ---------------------------------------------------------------------------
+def test_parse_iso_timestamp_handles_z_suffix():
+    """Claude Code transcripts use 'YYYY-MM-DDTHH:MM:SS.fffZ' format."""
+    from datetime import datetime, timezone
+    dt = analyze.parse_iso_timestamp("2026-04-01T10:00:00.000Z")
+    assert dt is not None
+    assert dt.tzinfo is not None
+    assert dt == datetime(2026, 4, 1, 10, 0, 0, tzinfo=timezone.utc)
+
+
+def test_parse_iso_timestamp_returns_none_on_garbage():
+    assert analyze.parse_iso_timestamp("") is None
+    assert analyze.parse_iso_timestamp("not a date") is None
+
+
+def test_parse_iso_timestamp_handles_naive_iso():
+    """Some transcript writers omit the Z. We default to UTC."""
+    from datetime import timezone
+    dt = analyze.parse_iso_timestamp("2026-04-01T10:00:00")
+    assert dt is not None
+    assert dt.tzinfo == timezone.utc
+
+
+def test_old_session_with_recent_mtime_has_correct_last_ts():
+    """The fixture has messages from 2026-01-15 only.
+    analyze_file should record last_ts = 2026-01-15T09:00:05Z.
+    main()'s authoritative since-filter would then drop it from a
+    --days 7 window even if the file mtime got bumped by a touch."""
+    s = analyze.analyze_file(_FIXTURES / "old-session-recent-mtime.jsonl")
+    assert s is not None
+    assert s.last_ts.startswith("2026-01-15")
+    last_dt = analyze.parse_iso_timestamp(s.last_ts)
+    assert last_dt is not None
+    # The fixture's last timestamp is 2026-01-15. A since=2026-04-01 cutoff
+    # would correctly drop this session if main() filters by last_ts.
+    from datetime import datetime, timezone
+    cutoff = datetime(2026, 4, 1, tzinfo=timezone.utc)
+    assert last_dt < cutoff
+
+
+def test_analyze_file_with_since_skips_old_messages():
+    """When since is provided, analyze_file should skip messages older
+    than the cutoff. The old-session fixture has only 2026-01-15 messages,
+    so a since=2026-04-01 cutoff should yield zero assistant_turns."""
+    from datetime import datetime, timezone
+    cutoff = datetime(2026, 4, 1, tzinfo=timezone.utc)
+    s = analyze.analyze_file(_FIXTURES / "old-session-recent-mtime.jsonl",
+                             since=cutoff)
+    assert s is not None  # returns empty stats, not None, in since mode
+    assert s.assistant_turns == 0
+    assert s.input_tokens == 0
+
+
+def test_analyze_file_with_since_keeps_recent_messages():
+    """The normal-session fixture has 2026-04-01 messages.
+    A since=2026-03-01 cutoff should keep all of them; a since=2026-05-01
+    cutoff should drop all of them."""
+    from datetime import datetime, timezone
+    early_cutoff = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    s = analyze.analyze_file(_FIXTURES / "normal-session.jsonl",
+                             since=early_cutoff)
+    assert s is not None
+    assert s.assistant_turns == 3  # all kept
+
+    late_cutoff = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    s = analyze.analyze_file(_FIXTURES / "normal-session.jsonl",
+                             since=late_cutoff)
+    assert s is not None
+    assert s.assistant_turns == 0  # all filtered
+
+
+def test_analyze_file_no_since_preserves_legacy_behavior():
+    """Without since, the non-CC JSONL detection should still kick in
+    and return None for files with no usage data."""
+    s = analyze.analyze_file(_FIXTURES / "empty-session.jsonl")
+    assert s is None  # legacy: no since, no usage → None
