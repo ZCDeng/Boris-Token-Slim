@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Boris-Token-Slim audit script
 # Two layers:
-#   1. Seven static metrics (sizes, counts, thresholds)
-#   2. Nine gotcha detectors (concrete evidence: paths, names, line numbers)
+#   1. Eight static metrics (sizes, counts, thresholds — including codeburn-inspired
+#      CLAUDE.md @-import expansion and BASH_MAX_OUTPUT_LENGTH cap)
+#   2. Eleven gotcha detectors (concrete evidence: paths, names, line numbers)
 # Exit code 0 always — this is a report, not a gate.
 
 set -u
@@ -45,9 +46,68 @@ pyf() {
 }
 
 # ============================================================================
-# LAYER 1 · Seven static metrics
+# LAYER 1 · Static metrics
 # ============================================================================
 claude_md_bytes=$(bytes_of "$CLAUDE_HOME/CLAUDE.md")
+
+# CLAUDE.md @-import expansion (codeburn-inspired): a CLAUDE.md that imports
+# other markdown via lines like '@./imports/foo.md' or '@/abs/path.md' loads
+# all of those files' contents into every API call. We compute the total
+# expanded line count (with cycle detection, max depth 5).
+claude_md_expanded_lines=0
+claude_md_imports=0
+if [ -f "$CLAUDE_HOME/CLAUDE.md" ] && command -v python3 >/dev/null 2>&1; then
+  read -r claude_md_expanded_lines claude_md_imports <<<$(pyf '
+import os, re, sys
+ROOT = sys.argv[1]
+PATTERN = re.compile(r"^@(\.\.?/[^\s]+|/[^\s]+)", re.MULTILINE)
+MAX_DEPTH = 5
+def expand(path, seen, depth):
+    if depth > MAX_DEPTH or path in seen: return (0, 0)
+    seen.add(path)
+    try:
+        text = open(path, encoding="utf-8", errors="ignore").read()
+    except (OSError, IOError):
+        return (0, 0)
+    lines = text.count("\n") + 1
+    imports = 0
+    base = os.path.dirname(path)
+    for m in PATTERN.finditer(text):
+        raw = m.group(1)
+        resolved = raw if raw.startswith("/") else os.path.normpath(os.path.join(base, raw))
+        if not os.path.exists(resolved): continue
+        nl, ni = expand(resolved, seen, depth+1)
+        lines += nl
+        imports += 1 + ni
+    return (lines, imports)
+total_lines, total_imports = expand(ROOT, set(), 0)
+print(f"{total_lines} {total_imports}")
+' "$CLAUDE_HOME/CLAUDE.md")
+  claude_md_expanded_lines="${claude_md_expanded_lines:-0}"
+  claude_md_imports="${claude_md_imports:-0}"
+fi
+
+# Bash output limit (codeburn-inspired): if BASH_MAX_OUTPUT_LENGTH > 30K
+# (the default cap), every bash tool call's tail is uncapped noise that
+# pads context. Codeburn's empirical recommendation is 15K.
+bash_output_limit=0
+bash_output_source="default"
+for profile in .zshrc .bashrc .bash_profile .profile; do
+  pf="$HOME/$profile"
+  [ -f "$pf" ] || continue
+  # Look for `export BASH_MAX_OUTPUT_LENGTH=<n>`
+  found=$(grep -E '^[[:space:]]*export[[:space:]]+BASH_MAX_OUTPUT_LENGTH[[:space:]]*=[[:space:]]*["'\'']?[0-9]+' "$pf" 2>/dev/null | tail -1 | sed -E 's/.*=[[:space:]]*["'\'']?([0-9]+).*/\1/')
+  if [ -n "$found" ]; then
+    bash_output_limit="$found"
+    bash_output_source="~/$profile"
+    break
+  fi
+done
+if [ "$bash_output_limit" = "0" ] && [ -n "${BASH_MAX_OUTPUT_LENGTH:-}" ]; then
+  bash_output_limit="$BASH_MAX_OUTPUT_LENGTH"
+  bash_output_source="env BASH_MAX_OUTPUT_LENGTH"
+fi
+[ "$bash_output_limit" = "0" ] && bash_output_limit=30000  # default
 
 memory_md=""
 for c in "$MEMORY_DIR/MEMORY.md" "$CLAUDE_HOME/memory/MEMORY.md"; do
@@ -107,11 +167,13 @@ cat <<EOF
 ║         Boris-Token-Slim · Claude Code Overhead Audit                ║
 ╚══════════════════════════════════════════════════════════════════════╝
 
-PART 1 · Seven static metrics
+PART 1 · Eight static metrics
 
 Metric                              Value        Target       Status
 ─────────────────────────────────── ──────────── ──────────── ──────────
 1. CLAUDE.md bytes                  $(printf '%-12s' "$claude_md_bytes")  < 1500        $(flag_over "$claude_md_bytes" 1500)
+   CLAUDE.md @-import expanded ln   $(printf '%-12s' "$claude_md_expanded_lines")  < 200         $(flag_over "$claude_md_expanded_lines" 200)
+   CLAUDE.md @-imports              $(printf '%-12s' "$claude_md_imports")  varies        —
 2. MEMORY.md bytes                  $(printf '%-12s' "$memory_md_bytes")  < 2000        $(flag_over "$memory_md_bytes" 2000)
    Extra .md files in memory dir    $(printf '%-12s' "$memory_extra_files")  < 15          $(flag_over "$memory_extra_files" 15)
 3. Installed plugins                $(printf '%-12s' "$plugin_count")  < 15          $(flag_over "$plugin_count" 15)
@@ -121,18 +183,20 @@ Metric                              Value        Target       Status
 5. Skills in ~/.claude/skills/      $(printf '%-12s' "$skills_total")  < 50          $(flag_over "$skills_total" 50)
 6. Big packs in ~/.claude/commands/ $(printf '%-12s' "$commands_subdirs")  0             $(flag_over "$commands_subdirs" 0)
 7. Active settings.json hooks       $(printf '%-12s' "$hooks_active")  < 3           $(flag_over "$hooks_active" 3)
+8. Bash output limit                $(printf '%-12s' "$bash_output_limit")  ≤ 15000       $(flag_over "$bash_output_limit" 15000)
+   ↳ source: $bash_output_source
 
 EOF
 
 # ============================================================================
-# LAYER 2 · Nine gotcha detectors
+# LAYER 2 · Eleven gotcha detectors
 # Each prints concrete evidence (paths, names) the user can act on.
 # ============================================================================
-echo "PART 2 · Nine gotcha detectors (with locatable evidence)"
+echo "PART 2 · Eleven gotcha detectors (with locatable evidence)"
 echo "          (dead symlinks · _archive trap · sub-plugin explosion ·"
 echo "           same-name plugin · project-scope MCP · zombie configs ·"
 echo "           MCP zombie resurrection · embedded sub-skills ·"
-echo "           configured-but-uncalled MCP)"
+echo "           configured-but-uncalled MCP · junk reads · duplicate reads)"
 echo ""
 
 issues=0
@@ -585,17 +649,112 @@ for k, v in mcp.items():
   fi
 fi
 
+# ---------- Gotcha 10: junk reads (build/dependency directory traversal) ----------
+# Codeburn-inspired: scan transcripts for Read/Grep/Glob calls into
+# node_modules/.git/dist/etc. These dirs are generated/dependency content
+# Claude almost never needs to introspect; each read is ~600 tokens of fluff.
+if [ -f "$ANALYZE_PY" ] && command -v python3 >/dev/null 2>&1; then
+  # Reuse called_json if Gotcha 9 already computed it; else compute here
+  if [ -z "${called_json:-}" ]; then
+    called_json=$(python3 "$ANALYZE_PY" --days 30 --top 0 --json 2>/dev/null)
+  fi
+  if [ -n "${called_json:-}" ]; then
+    junk_summary=$(printf '%s' "$called_json" | python3 -c '
+import json, sys
+try: d = json.load(sys.stdin)
+except Exception: sys.exit(0)
+junk = d.get("junk_reads", {})
+total = junk.get("total", 0)
+by_dir = junk.get("by_dir", {})
+if total < 3: sys.exit(0)
+print(f"TOTAL\t{total}")
+for k, v in by_dir.items():
+    print(f"DIR\t{k}\t{v}")
+' 2>/dev/null)
+    if [ -n "$junk_summary" ]; then
+      junk_total=$(printf '%s' "$junk_summary" | awk -F'\t' '/^TOTAL/{print $2}')
+      details="Claude read $junk_total times into build/dependency directories (last 30 days):"
+      details+=$'\n'""
+      while IFS=$'\t' read -r kind dir count; do
+        [ "$kind" = "DIR" ] || continue
+        details+=$'\n'"  $dir/  ${count}× reads"
+      done <<< "$junk_summary"
+      est=$((junk_total * 600))
+      details+=$'\n'""
+      details+=$'\n'"Estimated waste: ~${est} tokens (codeburn baseline ~600 tok/read)."
+      details+=$'\n'""
+      details+=$'\n'"Fix: append to your project CLAUDE.md:"
+      details+=$'\n'"  Do not read or search files under these directories unless I explicitly ask:"
+      top_dirs=$(printf '%s' "$junk_summary" | awk -F'\t' '/^DIR/{print $2}' | head -6 | tr '\n' ',' | sed 's/,$//; s/,/, /g')
+      details+=$'\n'"  $top_dirs"
+      print_finding "Reads into build/dependency dirs (codeburn-style)" "$details"
+    fi
+  fi
+fi
+
+# ---------- Gotcha 11: duplicate reads (same file re-read in one session) ----------
+if [ -f "$ANALYZE_PY" ] && command -v python3 >/dev/null 2>&1; then
+  if [ -z "${called_json:-}" ]; then
+    called_json=$(python3 "$ANALYZE_PY" --days 30 --top 0 --json 2>/dev/null)
+  fi
+  if [ -n "${called_json:-}" ]; then
+    dup_summary=$(printf '%s' "$called_json" | python3 -c '
+import json, sys, os
+try: d = json.load(sys.stdin)
+except Exception: sys.exit(0)
+dups = d.get("duplicate_reads", [])
+if not dups: sys.exit(0)
+HOME = os.path.expanduser("~")
+print(f"COUNT\t{len(dups)}")
+total_extra = 0
+for entry in dups:
+    fp = entry["file"]
+    if fp.startswith(HOME): fp = "~" + fp[len(HOME):]
+    if len(fp) > 60: fp = "…" + fp[-58:]
+    cnt = entry["count"]
+    sid = entry["session_id"][:8]
+    total_extra += (cnt - 1)
+    print(f"FILE\t{cnt}\t{fp}\t{sid}")
+print(f"TOTAL_EXTRA\t{total_extra}")
+' 2>/dev/null)
+    if [ -n "$dup_summary" ]; then
+      dup_count=$(printf '%s' "$dup_summary" | awk -F'\t' '/^COUNT/{print $2}')
+      total_extra=$(printf '%s' "$dup_summary" | awk -F'\t' '/^TOTAL_EXTRA/{print $2}')
+      details="$dup_count files re-read ≥3 times within a single session (last 30 days):"
+      details+=$'\n'""
+      shown=0
+      while IFS=$'\t' read -r kind cnt fp sid; do
+        [ "$kind" = "FILE" ] || continue
+        details+=$'\n'"  ${cnt}× $fp  [session ${sid}…]"
+        shown=$((shown+1))
+        [ "$shown" -ge 6 ] && break
+      done <<< "$dup_summary"
+      [ "$dup_count" -gt "$shown" ] && details+=$'\n'"  ... ($((dup_count - shown)) more)"
+      est=$((total_extra * 600))
+      details+=$'\n'""
+      details+=$'\n'"Estimated waste: ~${est} tokens spent re-reading content already in cache."
+      details+=$'\n'""
+      details+=$'\n'"Fixes:"
+      details+=$'\n'"  • Tools that auto-re-read MEMORY.md every turn (mempalace, claude-mem) are"
+      details+=$'\n'"    common culprits — verify they actually need full re-read each time."
+      details+=$'\n'"  • Within Claude, prompt 'use the version you already have' before re-Read."
+      print_finding "Duplicate file reads in same session (codeburn-style)" "$details"
+    fi
+  fi
+fi
+
 # ============================================================================
 # Summary
 # ============================================================================
 if [ "$issues" -eq 0 ]; then
-  echo "  ✅ No gotchas detected. (All nine detectors clean.)"
+  echo "  ✅ No gotchas detected. (All eleven detectors clean.)"
   echo ""
 fi
 
 echo ""
 echo "─── Recommendations ────────────────────────────────────────────────"
 [ "$claude_md_bytes" -gt 1500 ]      && echo "  • CLAUDE.md 超标：删 Anthropic 博客最佳实践照搬段、废弃模块配置、skill 触发说明"
+[ "$claude_md_expanded_lines" -gt 200 ]  && echo "  • CLAUDE.md @-import 展开后 $claude_md_expanded_lines 行：精简或拆分被引用的 .md（codeburn 估算每行 ~13 token）"
 [ "$memory_md_bytes" -gt 2000 ]      && echo "  • MEMORY.md 超标：归档已完成项目状态快照，只留 feedback/reference"
 [ "$memory_extra_files" -gt 15 ]     && echo "  • memory 目录 md 文件太多：归档到 archive/ 子目录"
 [ "$plugin_count" -gt 15 ]           && echo "  • 插件太多：检查金融套件/HuggingFace 子套件/同名重复装"
@@ -604,6 +763,7 @@ echo "─── Recommendations ────────────────
 [ "$dead_symlinks" -gt 0 ]           && echo "  • $dead_symlinks 个死 symlink：bash scripts/archive-helper.sh clean-dead"
 [ "$commands_subdirs" -gt 0 ]        && echo "  • commands/ 下有大类 skill pack：整目录挪到 ~/.claude/_commands_archive/"
 [ "$hooks_active" -gt 3 ]            && echo "  • hooks 多：审计每个 UserPromptSubmit hook 是否真的每次都需要"
+[ "$bash_output_limit" -gt 15000 ]   && echo "  • Bash 输出上限 $bash_output_limit > 15000：在 ~/.zshrc 加 export BASH_MAX_OUTPUT_LENGTH=15000"
 
 echo ""
 if ls -d "$CLAUDE_HOME"/_tokenslim_archive_* >/dev/null 2>&1; then

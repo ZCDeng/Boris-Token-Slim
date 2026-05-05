@@ -45,6 +45,18 @@ CACHE_WRITE_1H   = 2.0
 
 PROJECTS_ROOT = Path.home() / ".claude" / "projects"
 
+# Junk-read detection (codeburn-inspired): paths under these dirs are
+# generated/dependency content that Claude usually shouldn't be reading.
+import re
+JUNK_DIRS = (
+    'node_modules', '.git', 'dist', 'build', '__pycache__', '.next',
+    '.nuxt', '.output', 'coverage', '.cache', '.tsbuildinfo',
+    '.venv', 'venv', '.svn', '.hg',
+)
+JUNK_PATTERN = re.compile(r'/(?:' + '|'.join(re.escape(d) for d in JUNK_DIRS) + r')/')
+
+READ_TOOLS = frozenset(['Read', 'Grep', 'Glob', 'FileReadTool', 'GrepTool', 'GlobTool'])
+
 # Track unknown models so we warn once per ID, not per session
 _UNKNOWN_MODELS_SEEN: set[str] = set()
 
@@ -84,6 +96,9 @@ class SessionStats:
     web_search_calls: int = 0
     web_fetch_calls: int = 0
     mcp_calls: dict[str, int] = field(default_factory=dict)  # {server_name: call_count}
+    # Read tool call telemetry (codeburn-inspired)
+    junk_reads: list[str] = field(default_factory=list)        # paths under node_modules/.git/etc
+    file_read_counts: dict[str, int] = field(default_factory=dict)  # {abs_path: count} for dup detection
     cost_usd: float = 0.0
 
     @property
@@ -172,6 +187,17 @@ def analyze_file(path: Path) -> SessionStats | None:
                                 if len(parts) >= 2 and parts[1]:
                                     server = parts[1]
                                     stats.mcp_calls[server] = stats.mcp_calls.get(server, 0) + 1
+                            elif name in READ_TOOLS:
+                                # Capture file_path from Read/Grep/Glob input
+                                inp = blk.get("input") or {}
+                                if not isinstance(inp, dict): continue
+                                fp = inp.get("file_path") or inp.get("path") or inp.get("pattern") or ""
+                                if not isinstance(fp, str) or not fp: continue
+                                # Junk-read detection
+                                if JUNK_PATTERN.search(fp):
+                                    stats.junk_reads.append(fp)
+                                # Duplicate-read detection (per-session, normalized path)
+                                stats.file_read_counts[fp] = stats.file_read_counts.get(fp, 0) + 1
                     u = msg.get("usage") or {}
                     if not isinstance(u, dict):
                         continue
@@ -366,6 +392,47 @@ def render_text(sessions: list[SessionStats], top_n: int) -> str:
         push("  Servers configured in ~/.claude.json but absent from this list paid the")
         push("  tool-schema overhead every session for zero benefit.")
 
+    # Junk-read detection (codeburn-inspired)
+    junk_total = sum(len(s.junk_reads) for s in sessions)
+    if junk_total >= 3:
+        from collections import Counter
+        junk_dirs = Counter()
+        for s in sessions:
+            for p in s.junk_reads:
+                # Bucket by which JUNK_DIRS prefix was matched
+                m = JUNK_PATTERN.search(p)
+                if m:
+                    junk_dirs[m.group(0).strip('/')] += 1
+        push("")
+        push("─── Junk reads (build / dependency directories) ────────────────────────")
+        for d, n in junk_dirs.most_common(8):
+            push(f"  {d:25s}  {n:>6d} reads")
+        # Codeburn's tokens-per-read estimate: 600
+        est_saved = junk_total * 600
+        push("")
+        push(f"  Total: {junk_total} reads × ~600 tokens estimated = ~{est_saved:,} tokens of context fluff.")
+        push(f"  Recommend tell Claude in CLAUDE.md to avoid {', '.join(d for d,_ in junk_dirs.most_common(5))}.")
+
+    # Duplicate-read detection (within-session, codeburn-inspired)
+    duplicate_pairs = []  # (session_id, file_path, count)
+    for s in sessions:
+        for fp, count in s.file_read_counts.items():
+            # Skip junk-bucket files (already covered above)
+            if JUNK_PATTERN.search(fp): continue
+            if count >= 3:
+                duplicate_pairs.append((s.session_id, fp, count))
+    if duplicate_pairs:
+        # Sort by count desc, top 8
+        duplicate_pairs.sort(key=lambda x: -x[2])
+        push("")
+        push("─── Duplicate reads (same file re-read in same session) ────────────────")
+        for sid, fp, count in duplicate_pairs[:8]:
+            short_fp = fp if len(fp) <= 60 else "…" + fp[-58:]
+            push(f"  {count:>3}× {short_fp}    [session {sid[:8]}…]")
+        total_dup = sum(c - 1 for _, _, c in duplicate_pairs)  # extra reads beyond first
+        push("")
+        push(f"  {len(duplicate_pairs)} files re-read ≥3 times. ~{total_dup * 600:,} tokens spent re-reading already-cached content.")
+
     return "\n".join(out) + "\n"
 
 
@@ -381,6 +448,24 @@ def render_json(sessions: list[SessionStats]) -> str:
             sessions_with_mcp += 1
         for server, n in s.mcp_calls.items():
             mcp_totals[server] = mcp_totals.get(server, 0) + n
+    # Junk + duplicate read aggregates
+    from collections import Counter
+    junk_by_dir: Counter = Counter()
+    for s in sessions:
+        for p in s.junk_reads:
+            m = JUNK_PATTERN.search(p)
+            if m: junk_by_dir[m.group(0).strip('/')] += 1
+    duplicate_reads = []
+    for s in sessions:
+        for fp, count in s.file_read_counts.items():
+            if JUNK_PATTERN.search(fp): continue
+            if count >= 3:
+                duplicate_reads.append({
+                    "session_id": s.session_id,
+                    "file": fp,
+                    "count": count,
+                })
+    duplicate_reads.sort(key=lambda x: -x["count"])
     payload = {
         "schema": "boris-token-slim/transcript-analyzer/v2",
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -400,6 +485,11 @@ def render_json(sessions: list[SessionStats]) -> str:
             "sessions_with_mcp_calls": sessions_with_mcp,
             "by_server": dict(sorted(mcp_totals.items(), key=lambda x: -x[1])),
         },
+        "junk_reads": {
+            "total": sum(junk_by_dir.values()),
+            "by_dir": dict(junk_by_dir.most_common()),
+        },
+        "duplicate_reads": duplicate_reads[:20],  # top 20
         "sessions": [
             {
                 "session_id":      s.session_id,

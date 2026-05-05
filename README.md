@@ -155,6 +155,7 @@ If you want **dashboards**, install codeburn (`npm install -g codeburn`). If you
 | # | Pattern | Threshold |
 |---|---------|-----------|
 | 1 | `CLAUDE.md` bytes | < 1500 |
+| 1a | `CLAUDE.md` @-import expanded lines | < 200 |
 | 2 | `MEMORY.md` bytes | < 2000 |
 | 2a | Extra `.md` files in memory dir | < 15 |
 | 3 | Installed plugins | < 15 |
@@ -162,8 +163,9 @@ If you want **dashboards**, install codeburn (`npm install -g codeburn`). If you
 | 5 | Skills in `~/.claude/skills/` | < 50 |
 | 6 | Big packs in `~/.claude/commands/` (like `scientific-skills`) | 0 |
 | 7 | Active `settings.json` hooks | < 3 |
+| 8 | `BASH_MAX_OUTPUT_LENGTH` env / shell profile | ≤ 15000 |
 
-Plus **9 gotcha detectors** that print actionable evidence (paths, names, line numbers):
+Plus **11 gotcha detectors** that print actionable evidence (paths, names, line numbers):
 
 | # | Detector | What it finds |
 |---|----------|---------------|
@@ -176,6 +178,8 @@ Plus **9 gotcha detectors** that print actionable evidence (paths, names, line n
 | 7 | MCP zombie resurrection | Plugins that auto-register MCPs (so `claude mcp remove` is reverted on restart) |
 | 8 | Plugin sub-skill bundles | Plugins shipping ≥5 `SKILL.md` files; **distinguishes installed vs cache-residue** |
 | 9 | Configured-but-uncalled MCP | MCPs configured but invoked 0 times in last 30 days of transcripts (codeburn-style) |
+| 10 | Junk reads | Read/Grep into `node_modules`/`.git`/`dist`/etc (codeburn-style) |
+| 11 | Duplicate reads | Same file re-read ≥3 times in one session (codeburn-style) |
 
 ## What it does (interactive, safe)
 

@@ -57,7 +57,7 @@ Two-step process:
    - New section `# ---------- Gotcha N: short title ----------`
    - Print **locatable evidence** with `print_finding`. Show paths, plugin names, line numbers. Not "you have N items" — show *which* N items.
    - Cross-reference install state when relevant (e.g. installed vs cache-residue)
-   - Update the count in the header (`Nine gotcha detectors` → `Ten ...`) and the closing `(All nine detectors clean.)` line in `audit.sh`
+   - Update the count in the header (`Eleven gotcha detectors` → `Twelve ...`) and the closing `(All eleven detectors clean.)` line in `audit.sh`
    - Update README detector table
 
 ## Adding a fixture for `analyze.py`
