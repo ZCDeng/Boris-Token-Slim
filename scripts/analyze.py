@@ -83,6 +83,7 @@ class SessionStats:
     cache_write_1h: int = 0
     web_search_calls: int = 0
     web_fetch_calls: int = 0
+    mcp_calls: dict[str, int] = field(default_factory=dict)  # {server_name: call_count}
     cost_usd: float = 0.0
 
     @property
@@ -158,6 +159,19 @@ def analyze_file(path: Path) -> SessionStats | None:
                     stats.assistant_turns += 1
                     if not stats.model:
                         stats.model = msg.get("model") or ""
+                    # Extract tool_use blocks for MCP call accounting (codeburn-inspired)
+                    content = msg.get("content")
+                    if isinstance(content, list):
+                        for blk in content:
+                            if not isinstance(blk, dict): continue
+                            if blk.get("type") != "tool_use": continue
+                            name = blk.get("name") or ""
+                            if name.startswith("mcp__"):
+                                # mcp__<server>__<tool>
+                                parts = name.split("__")
+                                if len(parts) >= 2 and parts[1]:
+                                    server = parts[1]
+                                    stats.mcp_calls[server] = stats.mcp_calls.get(server, 0) + 1
                     u = msg.get("usage") or {}
                     if not isinstance(u, dict):
                         continue
@@ -333,12 +347,42 @@ def render_text(sessions: list[SessionStats], top_n: int) -> str:
     push("Pricing notes: Sonnet base $3/$15 per 1M (in/out). Cache read 0.1x, write 1.25x (5m) or 2x (1h).")
     push("This is a RETROSPECTIVE estimate. Actual billing may differ slightly with batching/discounts.")
 
+    # MCP usage: which servers actually get called, which never do
+    mcp_totals: dict[str, int] = {}
+    sessions_with_mcp = 0
+    for s in sessions:
+        if s.mcp_calls:
+            sessions_with_mcp += 1
+        for server, n in s.mcp_calls.items():
+            mcp_totals[server] = mcp_totals.get(server, 0) + n
+    if mcp_totals or sessions_with_mcp:
+        push("")
+        push("─── MCP usage (real tool_use call counts) ──────────────────────────────")
+        sorted_mcp = sorted(mcp_totals.items(), key=lambda x: -x[1])
+        for server, n in sorted_mcp:
+            push(f"  {server:30s}  {n:>6d} calls")
+        push("")
+        push(f"  {sessions_with_mcp} of {len(sessions)} sessions invoked at least one MCP tool.")
+        push("  Servers configured in ~/.claude.json but absent from this list paid the")
+        push("  tool-schema overhead every session for zero benefit.")
+
     return "\n".join(out) + "\n"
 
 
 def render_json(sessions: list[SessionStats]) -> str:
+    # Aggregate MCP call counts across sessions for downstream consumers
+    # (audit.sh detector, CI dashboards). Cross-references against
+    # ~/.claude.json::mcpServers happen in the consumer, not here — we
+    # report only what the transcripts actually called.
+    mcp_totals: dict[str, int] = {}
+    sessions_with_mcp = 0
+    for s in sessions:
+        if s.mcp_calls:
+            sessions_with_mcp += 1
+        for server, n in s.mcp_calls.items():
+            mcp_totals[server] = mcp_totals.get(server, 0) + n
     payload = {
-        "schema": "boris-token-slim/transcript-analyzer/v1",
+        "schema": "boris-token-slim/transcript-analyzer/v2",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "session_count": len(sessions),
         "totals": {
@@ -349,6 +393,12 @@ def render_json(sessions: list[SessionStats]) -> str:
             "cache_write_1h":    sum(s.cache_write_1h for s in sessions),
             "cost_usd_estimate": round(sum(s.cost_usd for s in sessions), 4),
             "assistant_turns":   sum(s.assistant_turns for s in sessions),
+            "web_search_calls":  sum(s.web_search_calls for s in sessions),
+            "web_fetch_calls":   sum(s.web_fetch_calls for s in sessions),
+        },
+        "mcp_usage": {
+            "sessions_with_mcp_calls": sessions_with_mcp,
+            "by_server": dict(sorted(mcp_totals.items(), key=lambda x: -x[1])),
         },
         "sessions": [
             {
@@ -366,6 +416,7 @@ def render_json(sessions: list[SessionStats]) -> str:
                 "cache_write_1h":  s.cache_write_1h,
                 "cache_hit_rate":  round(s.cache_hit_rate, 2),
                 "cost_usd":        round(s.cost_usd, 4),
+                "mcp_calls":       dict(s.mcp_calls),
             }
             for s in sorted(sessions, key=lambda x: -x.cost_usd)
         ],

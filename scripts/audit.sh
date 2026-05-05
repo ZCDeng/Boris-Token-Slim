@@ -2,7 +2,7 @@
 # Boris-Token-Slim audit script
 # Two layers:
 #   1. Seven static metrics (sizes, counts, thresholds)
-#   2. Eight gotcha detectors (concrete evidence: paths, names, line numbers)
+#   2. Nine gotcha detectors (concrete evidence: paths, names, line numbers)
 # Exit code 0 always — this is a report, not a gate.
 
 set -u
@@ -125,13 +125,14 @@ Metric                              Value        Target       Status
 EOF
 
 # ============================================================================
-# LAYER 2 · Eight gotcha detectors
+# LAYER 2 · Nine gotcha detectors
 # Each prints concrete evidence (paths, names) the user can act on.
 # ============================================================================
-echo "PART 2 · Eight gotcha detectors (with locatable evidence)"
+echo "PART 2 · Nine gotcha detectors (with locatable evidence)"
 echo "          (dead symlinks · _archive trap · sub-plugin explosion ·"
 echo "           same-name plugin · project-scope MCP · zombie configs ·"
-echo "           MCP zombie resurrection · embedded sub-skills)"
+echo "           MCP zombie resurrection · embedded sub-skills ·"
+echo "           configured-but-uncalled MCP)"
 echo ""
 
 issues=0
@@ -516,11 +517,79 @@ print(' '.join(k.split('@')[0] for k in plugins.keys()))
   fi
 fi
 
+# ---------- Gotcha 9: configured-but-uncalled MCP servers ----------
+# Inspired by codeburn's detectUnusedMcp: cross-reference MCP servers in
+# ~/.claude.json against actual mcp__<server>__* tool calls in the last 30
+# days of transcripts. Servers configured but never called paid tool-schema
+# tax every session for zero benefit.
+ANALYZE_PY="$(dirname "$0")/analyze.py"
+if [ -f "$CLAUDE_CONFIG" ] && [ -f "$ANALYZE_PY" ] && command -v python3 >/dev/null 2>&1; then
+  configured_mcps=$(pyf "
+import json, sys
+d = json.load(open(sys.argv[1]))
+if not isinstance(d, dict): sys.exit(0)
+out = set()
+top = d.get('mcpServers') or {}
+if isinstance(top, dict):
+    out |= set(top.keys())
+projs = d.get('projects') or {}
+if isinstance(projs, dict):
+    for pd in projs.values():
+        if isinstance(pd, dict):
+            sub = pd.get('mcpServers') or {}
+            if isinstance(sub, dict):
+                out |= set(sub.keys())
+print('\n'.join(sorted(out)))
+" "$CLAUDE_CONFIG")
+  if [ -n "$configured_mcps" ]; then
+    # Get actual call counts from analyze.py's --json
+    called_json=$(python3 "$ANALYZE_PY" --days 30 --top 0 --json 2>/dev/null)
+    if [ -n "$called_json" ]; then
+      called_mcps=$(printf '%s' "$called_json" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+mcp = d.get("mcp_usage", {}).get("by_server", {})
+for k, v in mcp.items():
+    print(f"{k}\t{v}")
+' 2>/dev/null)
+      # Build lookup tables
+      unused_servers=""
+      while IFS= read -r srv; do
+        [ -z "$srv" ] && continue
+        # Check if srv appears in called_mcps
+        if ! printf '%s' "$called_mcps" | awk -F'\t' -v s="$srv" '$1 == s { found=1 } END { exit !found }' 2>/dev/null; then
+          unused_servers+="$srv"$'\n'
+        fi
+      done <<< "$configured_mcps"
+      if [ -n "$unused_servers" ]; then
+        details="MCP servers configured in ~/.claude.json but invoked 0 times in last 30 days of transcripts:"
+        details+=$'\n'""
+        while IFS= read -r srv; do
+          [ -z "$srv" ] && continue
+          details+=$'\n'"  $srv  (0 calls)"
+        done <<< "$unused_servers"
+        details+=$'\n'""
+        details+=$'\n'"Each configured MCP ships its tool schema on every API call. Servers that"
+        details+=$'\n'"never get invoked pay full schema tax for zero benefit — codeburn estimates"
+        details+=$'\n'"~600 tokens per server per request."
+        details+=$'\n'""
+        details+=$'\n'"Fix: remove from user scope:"
+        details+=$'\n'"  claude mcp remove <server>"
+        details+=$'\n'"Or, if registered by a plugin (see Gotcha 7), uninstall the plugin instead."
+        print_finding "Configured-but-uncalled MCP servers (codeburn-style)" "$details"
+      fi
+    fi
+  fi
+fi
+
 # ============================================================================
 # Summary
 # ============================================================================
 if [ "$issues" -eq 0 ]; then
-  echo "  ✅ No gotchas detected. (All eight detectors clean.)"
+  echo "  ✅ No gotchas detected. (All nine detectors clean.)"
   echo ""
 fi
 

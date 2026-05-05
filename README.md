@@ -135,6 +135,21 @@ Parses every Claude Code session transcript in `~/.claude/projects/` and gives y
 
 Use both. Token Optimizer is your dashboard. Boris-Token-Slim is your annual physical.
 
+## How this compares to CodeBurn
+
+[`getagentseal/codeburn`](https://github.com/getagentseal/codeburn) is a popular cross-tool TUI dashboard (5K+ stars) for cost observability across 18 AI coding tools. We borrowed two ideas from it (see Detector 9 and the MCP usage section in `analyze.py`), but the projects target different jobs:
+
+| | CodeBurn | Boris-Token-Slim |
+|---|---|---|
+| **Job** | Observe how much you spent | Find what to change |
+| **Scope** | 18 providers (Claude/Codex/Cursor/Copilot/...) | Claude Code only |
+| **Output** | Live TUI dashboard, menu bar widget | Static report, archive-then-clean operations |
+| **Stack** | TypeScript + Ink/React + LiteLLM | Bash + stdlib Python |
+| **Size** | ~1MB / 32 src files / 27 tests | ~14KB / 3 scripts / 9 tests |
+| **License** | MIT | MIT |
+
+If you want **dashboards**, install codeburn (`npm install -g codeburn`). If you want **specific cleanup operations** with locatable evidence and an archive-not-delete safety contract, you're in the right place.
+
 ## What it audits
 
 | # | Pattern | Threshold |
@@ -148,7 +163,7 @@ Use both. Token Optimizer is your dashboard. Boris-Token-Slim is your annual phy
 | 6 | Big packs in `~/.claude/commands/` (like `scientific-skills`) | 0 |
 | 7 | Active `settings.json` hooks | < 3 |
 
-Plus **8 gotcha detectors** that print actionable evidence (paths, names, line numbers):
+Plus **9 gotcha detectors** that print actionable evidence (paths, names, line numbers):
 
 | # | Detector | What it finds |
 |---|----------|---------------|
@@ -160,6 +175,7 @@ Plus **8 gotcha detectors** that print actionable evidence (paths, names, line n
 | 6 | Zombie configs | `CLAUDE.md` references modules `MEMORY` says are removed |
 | 7 | MCP zombie resurrection | Plugins that auto-register MCPs (so `claude mcp remove` is reverted on restart) |
 | 8 | Plugin sub-skill bundles | Plugins shipping ≥5 `SKILL.md` files; **distinguishes installed vs cache-residue** |
+| 9 | Configured-but-uncalled MCP | MCPs configured but invoked 0 times in last 30 days of transcripts (codeburn-style) |
 
 ## What it does (interactive, safe)
 
