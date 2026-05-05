@@ -193,3 +193,62 @@ def test_analyze_file_no_since_preserves_legacy_behavior():
     and return None for files with no usage data."""
     s = analyze.analyze_file(_FIXTURES / "empty-session.jsonl")
     assert s is None  # legacy: no since, no usage → None
+
+
+# ---------------------------------------------------------------------------
+# Per-turn pricing (CR finding #8)
+# ---------------------------------------------------------------------------
+def test_per_turn_pricing_uses_each_turns_model():
+    """The normal-session fixture has 2 Sonnet turns then 1 Opus turn.
+    Old behavior: all priced at first-turn (Sonnet) rate, undercount on Opus.
+    New behavior: cost_usd is the sum of per-turn costs at each turn's
+    actual model price."""
+    s = analyze.analyze_file(_FIXTURES / "normal-session.jsonl")
+    assert s is not None
+
+    # Hand-calculate what cost_usd SHOULD be if per-turn pricing works.
+    # Fixture turns:
+    #   Sonnet turn 1: input=50 output=100 cache_creation=1000 (5m) cache_read=0
+    #   Sonnet turn 2: input=20 output=80  cache_creation=500 (1h) cache_read=1000
+    #   Opus   turn 3: input=10 output=200 cache_creation=0       cache_read=2000
+    sonnet_in, sonnet_out = (3.0, 15.0)
+    opus_in, opus_out = (15.0, 75.0)
+    expected = (
+        # Sonnet turn 1
+        50 * sonnet_in / 1_000_000
+        + 1000 * sonnet_in * 1.25 / 1_000_000  # 5m cache write
+        + 0 * sonnet_in * 0.1 / 1_000_000      # cache read (none)
+        + 100 * sonnet_out / 1_000_000
+        # Sonnet turn 2
+        + 20 * sonnet_in / 1_000_000
+        + 500 * sonnet_in * 2.0 / 1_000_000    # 1h cache write
+        + 1000 * sonnet_in * 0.1 / 1_000_000   # cache read
+        + 80 * sonnet_out / 1_000_000
+        # Opus turn 3
+        + 10 * opus_in / 1_000_000
+        + 0 * opus_in * 1.25 / 1_000_000
+        + 2000 * opus_in * 0.1 / 1_000_000     # cache read at Opus rate (key!)
+        + 200 * opus_out / 1_000_000
+    )
+    assert abs(s.cost_usd - expected) < 1e-9, \
+        f"per-turn pricing wrong: got {s.cost_usd:.6f}, expected {expected:.6f}"
+
+
+def test_per_turn_pricing_opus_costs_more_than_session_model_would_say():
+    """Sanity check: with mixed Sonnet+Opus, per-turn pricing produces a
+    HIGHER cost than naive 'price everything at first turn's Sonnet rate'.
+    This is exactly the underbilling bug #8 fixed."""
+    s = analyze.analyze_file(_FIXTURES / "normal-session.jsonl")
+    assert s is not None
+
+    # Naive Sonnet-only formula (what the old code did)
+    naive_sonnet = (
+        s.input_tokens * 3.0 / 1_000_000
+        + s.cache_read * 3.0 * 0.1 / 1_000_000
+        + s.cache_write_5m * 3.0 * 1.25 / 1_000_000
+        + s.cache_write_1h * 3.0 * 2.0 / 1_000_000
+        + s.output_tokens * 15.0 / 1_000_000
+    )
+    # Real cost should exceed naive because Opus turn costs 5x the input
+    # and 5x the output that naive Sonnet pricing assumes.
+    assert s.cost_usd > naive_sonnet * 1.05  # at least 5% higher

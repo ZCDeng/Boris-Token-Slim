@@ -261,6 +261,20 @@ def analyze_file(path: Path, since: datetime | None = None) -> SessionStats | No
                     stats.cache_write_5m += c5
                     stats.cache_write_1h += c1
 
+                    # Per-turn pricing: use THIS turn's model, not a single
+                    # session-wide model. A session that starts with Sonnet
+                    # then promotes to Opus mid-stream would otherwise be
+                    # priced entirely at Sonnet rates (5x undercount on Opus).
+                    turn_model = msg.get("model") or stats.model or ""
+                    in_p, out_p = price_for(turn_model)
+                    stats.cost_usd += (
+                        inp * in_p / 1_000_000
+                        + cr  * in_p * CACHE_READ_MULT  / 1_000_000
+                        + c5  * in_p * CACHE_WRITE_5M   / 1_000_000
+                        + c1  * in_p * CACHE_WRITE_1H   / 1_000_000
+                        + out * out_p / 1_000_000
+                    )
+
                     sti = u.get("server_tool_use") or {}
                     if isinstance(sti, dict):
                         stats.web_search_calls += sti.get("web_search_requests") or 0
@@ -278,14 +292,7 @@ def analyze_file(path: Path, since: datetime | None = None) -> SessionStats | No
             return stats
         return None
 
-    in_p, out_p = price_for(stats.model)
-    stats.cost_usd = (
-        stats.input_tokens   * in_p / 1_000_000 +
-        stats.cache_read     * in_p * CACHE_READ_MULT  / 1_000_000 +
-        stats.cache_write_5m * in_p * CACHE_WRITE_5M   / 1_000_000 +
-        stats.cache_write_1h * in_p * CACHE_WRITE_1H   / 1_000_000 +
-        stats.output_tokens  * out_p / 1_000_000
-    )
+    # cost_usd was already accumulated per-turn during the message loop.
     return stats
 
 
@@ -401,25 +408,27 @@ def render_text(sessions: list[SessionStats], top_n: int) -> str:
     if denom > 0 and cache_hit < 85:
         # If your global cache hit jumped to 85%, how much would input-side
         # cost change? Treat the additional reads as 0.1x (cache_read price)
-        # vs the original mix.
+        # vs the original mix. Use blended input price so Opus-heavy
+        # sessions aren't underestimated by 5x.
         target_hit = 0.85
         actual_read = total_cr
         ideal_read  = denom * target_hit
         delta_read  = max(0, ideal_read - actual_read)
         # That delta has to come from somewhere — assume it was raw input @ 1.0x
-        # Savings = delta * (1.0 - 0.1) * base_price
-        save = delta_read * 3 * 0.9 / 1_000_000
+        # Savings = delta * (1.0 - 0.1) * blended_in_price
+        save = delta_read * blended_in * 0.9 / 1_000_000
         push(f"  If your cache hit reached 85% globally: ~{fmt_usd(save)} saved")
     elif cache_hit >= 85:
         push(f"  Cache hit already ≥ 85%. No quick win on this axis.")
     if cache_write_total > 0 and pct_1h < 50:
         # 5m TTL writes that get re-created within the same session waste 1.25x
         # 1h would amortize. Assume half the 5m writes could've been 1h.
-        save_1h = total_c5 * 0.5 * 3 * (1.25 - 0.0) / 1_000_000  # rough upper bound
+        # Same blended-price reasoning as above.
+        save_1h = total_c5 * 0.5 * blended_in * 1.25 / 1_000_000  # rough upper bound
         push(f"  If you upgrade to 1h cache TTL: ~{fmt_usd(save_1h)} saved (rough)")
     push("")
-    push("Pricing notes: Sonnet base $3/$15 per 1M (in/out). Cache read 0.1x, write 1.25x (5m) or 2x (1h).")
-    push("This is a RETROSPECTIVE estimate. Actual billing may differ slightly with batching/discounts.")
+    push(f"Pricing: blended {fmt_usd(blended_in)}/M input, {fmt_usd(blended_out)}/M output across the model mix in this window.")
+    push("Cache read 0.1x, write 1.25x (5m) or 2x (1h). Retrospective estimate; batching/discounts may differ slightly.")
 
     # MCP usage: which servers actually get called, which never do
     mcp_totals: dict[str, int] = {}
