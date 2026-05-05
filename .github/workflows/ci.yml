@@ -74,4 +74,4 @@ jobs:
       - name: Verify dead symlink was detected
         run: grep -q "Dead symlinks" audit-output.txt
       - name: Verify Part 1 metrics rendered
-        run: grep -q "PART 1 · Seven static metrics" audit-output.txt
+        run: grep -q "PART 1 · Eight static metrics" audit-output.txt
