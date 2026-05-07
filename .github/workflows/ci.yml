@@ -23,6 +23,7 @@ jobs:
           bash -n scripts/archive-helper.sh
           bash -n scripts/install.sh
           bash -n scripts/uninstall.sh
+          bash -n scripts/headline-only.sh
       - name: shellcheck (warnings as info, errors fail)
         run: |
           # SC2086 (word splitting), SC2155 (declare+assign), SC2034 (unused) are noisy in audit-style scripts.
