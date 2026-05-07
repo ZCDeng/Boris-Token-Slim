@@ -12,7 +12,7 @@ set -euo pipefail
 VERSION="v0.2.0"
 REPO_URL="https://github.com/ZCDeng/Boris-Token-Slim.git"
 RAW_BASE="https://raw.githubusercontent.com/ZCDeng/Boris-Token-Slim/${VERSION}"
-EXPECTED_ANALYZE_SHA256="<release-time fill>"
+EXPECTED_ANALYZE_SHA256="4a3297cf0cc7a436cc663bf9dfeb00635dd98f71000740dffad48eb48e9802a3"
 
 # ── helpers ──────────────────────────────────────────────────────────────
 has() { command -v "$1" >/dev/null 2>&1; }
