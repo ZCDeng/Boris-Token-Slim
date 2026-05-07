@@ -2,6 +2,31 @@
 
 All notable changes to Boris-Token-Slim will be documented in this file. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.2.0] — 2026-05-07
+
+### Added
+
+- **`--headline` flag**: `python3 scripts/analyze.py --headline` emits a 1-line fact-driven summary (cost / cache hit rate / zero-call MCP servers / duplicate-read tokens). Ledger written to `~/.boris-stats/history.jsonl` (0600 permissions). `BORIS_STATS_DISABLE=1` skips the ledger for read-only use.
+- **audit.sh headline integration**: Daily `bash scripts/audit.sh` now shows the headline between the banner and Part 1 (silent-fail if analyze.py is missing or `~/.claude/projects/` is empty).
+- **`scripts/headline-only.sh`**: One-command curl-pipe to see YOUR Claude Code stats. Pinned to immutable v0.2.0 tag + sha256-verified. Git primary path with curl/wget single-file fallback. Read-only (never writes ledger).
+- **`scripts/install.sh`**: Trust-on-first-use install script. Detects 5 agents (Claude Code / Cursor / Windsurf / Codex / Gemini CLI) via caveman hybrid pattern. Git clone primary + wget/curl tarball fallback with sha256 verification. `--dry-run` support. Idempotent reinstall. Honest-bail for non-CC users with GitHub Issues link. Cleanup-on-fail trap covers post-mv state.
+- **`scripts/uninstall.sh`**: Clean removal of install.sh-created files (symlink + clone path). Never touches `~/.boris-stats/` ledger. Supports curl-pipe and `--dry-run`.
+- **Zero-estimation duplicate-read tracking**: `analyze_file` attributes real input growth between assistant turns to prior-turn reads (proportional delta), replacing the dashboard's `count × 600` heuristic for headline output.
+- **`PROJECTS_ROOT` reads `CLAUDE_HOME` env**: Consistent with audit.sh contract. CI fixture and local behavior unified.
+- **README expansion**: Banner author headline pull-quote (real data, ≤200 chars). "30-second test" chapter with curl-pipe command + F9 "what these numbers mean for you" bullet block (Chinese + English). Install/Uninstall sections with curl-pipe commands and transparency table.
+- **CI**: `smoke-install` job covers install.sh detection + `--dry-run` + honest-bail + no-agent fallback + uninstall.sh. `smoke-audit` verifies headline token. Shellcheck + bash -n extended to all new scripts.
+
+### Trust
+
+- Tarball sha256: `91f24a21be3cd698c309371e8a257dd9ec14a2d8242252010fc7c65af0853e92` (loader/payload split — tarball excludes install.sh/uninstall.sh)
+- analyze.py sha256: `4a3297cf0cc7a436cc663bf9dfeb00635dd98f71000740dffad48eb48e9802a3`
+- Both hashes verified client-side before execution. Release asset uploaded via `gh release create`.
+
+### Compared to / inspired by
+
+- [`juliusbrussee/caveman`](https://github.com/juliusbrussee/caveman) (54K stars) — install.sh + headline pattern. Cross-pollination ideation in `~/docs/ideation/2026-05-05-boris-token-slim-caveman-cross-pollination-ideation.md`.
+- Planning artifacts: `~/docs/plans/2026-05-06-001-feat-boris-stats-headline-plan.md` (S1), `~/docs/plans/2026-05-07-001-feat-install-sh-multi-agent-plan.md` (S2), `~/docs/plans/2026-05-06-002-meta-v0.2.0-ship-plan.md` (meta).
+
 ## [v0.1.0] — 2026-05-06
 
 First tagged release. Repo went from initial commit to feature-complete in 48 hours; this tag captures a known-good baseline for users who want to pin.

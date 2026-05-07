@@ -14,6 +14,11 @@ A Claude Code [skill](https://docs.claude.com/en/docs/claude-code/skills) that a
 
 Boris Cherny (Claude Code's creator) first surfaced the **9-pattern framework** on a podcast; [@Mnilax / Mnimiy](https://youmind.com/s/MieRjYvn3NFzLd) then instrumented **430 hours** of his own Claude Code usage with an HTTP proxy and put hard percentages on each pattern — **73% of all tokens were waste**, 27% productive. This skill operationalizes both: the 9 categories + 7 additional gotchas the author hit cleaning his own machine (most notably: `commands/_archive/` still gets scanned by the harness, so moving stuff there makes names *longer*).
 
+> **Author's last 30 days (fact-driven headline):**
+> `$15,734 spent | 89.4% cache hit | 4 zero-call MCP servers | 1.5M tokens re-read`
+>
+> No estimation. No 65% reduction claim. Four numbers your own `~/.claude/projects/` already recorded. Run the 30-second test below to see yours.
+
 ---
 
 ## 中文介绍
@@ -23,6 +28,11 @@ Boris Cherny (Claude Code's creator) first surfaced the **9-pattern framework** 
 > *— [@Mnilax 在 X 的推文](https://x.com/i/status/2050321700802408552) · 5490 赞*
 
 Boris Cherny（Claude Code 作者）先在 podcast 里提出**9 模式分类框架**；[@Mnilax（Mnimiy）](https://youmind.com/s/MieRjYvn3NFzLd) 随后用 HTTP proxy 拦截了自己的 Claude Code 流量，给每条模式打上硬数据——真正回答你问题的 productive token 只占 **27%**，剩下 **73% 花在你看不见的 9 个地方**。
+
+> **作者最近 30 天真实数据（不估算是多少就是多少）：**
+> `$15,734 spent | 89.4% cache hit | 4 zero-call MCP servers | 1.5M tokens re-read`
+>
+> 零估算。没有"省 65% token"的话术。四个数字你的 `~/.claude/projects/` 已经帮你记好了。跑下面 30 秒测试看你的。
 
 - 你还没打一个字，**~14%** 额度已经花在加载 `CLAUDE.md` 上
 - 对话到第 30 条，每条都在重读前面 29 条——**~13%** 全是重读
@@ -62,49 +72,112 @@ Boris Cherny（Claude Code 作者）先在 podcast 里提出**9 模式分类框�
 
 所有动作都 `mv` 到 `~/.claude/_tokenslim_archive_<YYYYMMDD>/`，反悔能 `mv` 回来。
 
-### 30 秒体验
+### 30-second test: what does YOUR Claude Code look like?
 
-只看报告不做修改：
+One copy-paste command. No clone. No install. Read-only (never writes files).
+
 ```bash
-git clone --branch v0.1.0 https://github.com/ZCDeng/Boris-Token-Slim.git
-bash Boris-Token-Slim/scripts/audit.sh
+bash <(curl -fsSL https://raw.githubusercontent.com/ZCDeng/Boris-Token-Slim/v0.2.0/scripts/headline-only.sh)
 ```
 
-接入 Claude Code 做交互清理：
+You'll get a single line like: `30 days: $X,XXX spent | XX% cache hit | X zero-call MCP servers | XXX tokens re-read`
+
+**What these numbers mean for you** (author's sample: 30 days, ~70 sessions, long-context + large-model heavy):
+
+- Short, single-Q&A sessions → your duplicate-read count will be lower than the author's (you don't lean on re-reads).
+- Heavy Haiku / small-model user → your cost line will be 5-10x lower (pricing per 1M tokens scales steeply by model).
+- You barely use MCP → your "zero-call MCP" count will be 0 (if you haven't configured any, this category doesn't apply).
+
+The script is **pinned to the immutable v0.2.0 tag**, sha256-verified, and falls back to a single-file curl/wget download if git is missing. No telemetry, no ledger write. Script source: [headline-only.sh](https://github.com/ZCDeng/Boris-Token-Slim/blob/v0.2.0/scripts/headline-only.sh).
+
+### 30 秒测试：你的 Claude Code 长什么样？
+
+一条命令，复制粘贴就出结果。不 clone，不装东西，只读（不写任何文件）。
+
 ```bash
-ln -s "$(pwd)/Boris-Token-Slim" ~/.claude/skills/Boris-Token-Slim
-# Claude Code 里说："/Boris-Token-Slim" 或 "审计我的 claude code token 消耗"
+bash <(curl -fsSL https://raw.githubusercontent.com/ZCDeng/Boris-Token-Slim/v0.2.0/scripts/headline-only.sh)
 ```
+
+你会得到一行像这样的输出：`30 days: $X,XXX spent | XX% cache hit | X zero-call MCP servers | XXX tokens re-read`
+
+**数字怎么读**（作者样本：30 天 ~70 sessions，长 context + 大模型为主）：
+
+- 短任务 / 一问一答为主 → 你的重复读（dup-read）会比作者低（你不靠重复读同一文件吃饭）。
+- 小模型（Haiku）为主 → 你的 cost 同比缩水 5-10 倍（per 1M token 定价跨模型级差极大）。
+- MCP 用得少 → "zero-call MCP servers" 计数往往是 0（没装就不会有这块浪费）。
+
+脚本 **pin 在 immutable v0.2.0 tag**，sha256 校验，没有 git 时自动降级走 curl/wget 单文件下载。不上报数据，不写 ledger。脚本源码：[headline-only.sh](https://github.com/ZCDeng/Boris-Token-Slim/blob/v0.2.0/scripts/headline-only.sh)。
 
 作者本机实测：`CLAUDE.md -83% / MEMORY.md -79% / 插件 -55% / skill 清单 -72%`，每轮请求基线回收 ~8000-10000 tokens。
 
 ---
 
-## Install
+## Install (Claude Code skill)
 
-### Option A: Use as a Claude Code skill
+One command. Detects Claude Code / Cursor / Windsurf / Codex / Gemini CLI — installs only for Claude Code, honest-bails for others.
 
 ```bash
-# Pin to a tagged release (recommended for stable behavior)
-git clone --branch v0.1.0 https://github.com/ZCDeng/Boris-Token-Slim.git ~/projects/Boris-Token-Slim
-ln -s ~/projects/Boris-Token-Slim ~/.claude/skills/Boris-Token-Slim
-chmod +x ~/projects/Boris-Token-Slim/scripts/*.sh
+bash <(curl -fsSL https://raw.githubusercontent.com/ZCDeng/Boris-Token-Slim/v0.2.0/scripts/install.sh)
 ```
 
-Then in Claude Code: `/Boris-Token-Slim` or just say "优化我的 Claude Code token 消耗" / "audit my Claude Code overhead".
+The script is **pinned to the immutable v0.2.0 tag**, sha256-verified (tarball over the full bundle, hash embedded in the script), and falls back to curl/wget if git is missing. `--dry-run` prints what would happen without touching files.
 
-### Option B: Just run the audit script
+| What `install.sh` installs | Where |
+|---|---|
+| Boris-Token-Slim skill | `~/.claude/skills/boris-token-slim/` (symlink → `~/.local/share/boris-token-slim/v0.2.0/`) |
+| Clone / extracted bundle | `~/.local/share/boris-token-slim/v0.2.0/` (XDG, 54 KB) |
+| Ledger (headline history) | `~/.boris-stats/history.jsonl` (0600, append-only, only on manual `--headline` runs) |
+
+**What it does NOT install**: no hooks, no cron, no shell config changes, no floor files (`.cursor/rules`, `AGENTS.md`).
+
+### 安装（Claude Code skill）
+
+一条命令。自动检测 Claude Code / Cursor / Windsurf / Codex / Gemini CLI——只装 Claude Code，检测到其他 agent 会诚实告诉你目前不支持。
 
 ```bash
-bash ~/projects/Boris-Token-Slim/scripts/audit.sh
+bash <(curl -fsSL https://raw.githubusercontent.com/ZCDeng/Boris-Token-Slim/v0.2.0/scripts/install.sh)
+```
+
+脚本 **pin 在 immutable v0.2.0 tag**，tarball sha256 校验（内嵌 hash），没有 git 时自动走 curl/wget。`--dry-run` 只打印会做什么、不真碰文件。
+
+| `install.sh` 装了什么 | 落点 |
+|---|---|
+| Boris-Token-Slim skill | `~/.claude/skills/boris-token-slim/`（symlink → `~/.local/share/boris-token-slim/v0.2.0/`） |
+| Clone / 解压 bundle | `~/.local/share/boris-token-slim/v0.2.0/`（XDG，54 KB） |
+| Ledger（headline 历史） | `~/.boris-stats/history.jsonl`（0600 权限，append-only，仅手动 `--headline` 时写） |
+
+**不会装的**：不注入 hook、不加 cron、不改 shell config、不投放 floor 文件（`.cursor/rules`、`AGENTS.md`）。
+
+After install, in Claude Code: `/Boris-Token-Slim` or say "审计我的 claude code token 消耗".
+
+### Uninstall
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/ZCDeng/Boris-Token-Slim/v0.2.0/scripts/uninstall.sh)
+```
+
+Removes the symlink and clone path. **Never touches `~/.boris-stats/`** (your data). `--dry-run` supported.
+
+### 卸载
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/ZCDeng/Boris-Token-Slim/v0.2.0/scripts/uninstall.sh)
+```
+
+删 symlink 和 clone 路径。**不动 `~/.boris-stats/`**（你的数据）。支持 `--dry-run`。
+
+### Option B: Just run the audit script (no install)
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/ZCDeng/Boris-Token-Slim/v0.2.0/scripts/audit.sh)
 ```
 
 Outputs a dashboard of your current overhead vs. recommended thresholds. No changes made.
 
-### Option C: Retrospective transcript analysis (no Claude needed)
+### Option C: Retrospective transcript analysis
 
 ```bash
-python3 ~/projects/Boris-Token-Slim/scripts/analyze.py --days 30
+python3 <(curl -fsSL https://raw.githubusercontent.com/ZCDeng/Boris-Token-Slim/v0.2.0/scripts/analyze.py) --days 30
 ```
 
 Parses every Claude Code session transcript in `~/.claude/projects/` and gives you:
