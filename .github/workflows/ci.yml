@@ -75,3 +75,5 @@ jobs:
         run: grep -q "Dead symlinks" audit-output.txt
       - name: Verify Part 1 metrics rendered
         run: grep -q "PART 1 · Eight static metrics" audit-output.txt
+      - name: Verify headline appears between banner and PART 1
+        run: grep -q "run claude code first" audit-output.txt

@@ -167,6 +167,16 @@ cat <<EOF
 ║         Boris-Token-Slim · Claude Code Overhead Audit                ║
 ╚══════════════════════════════════════════════════════════════════════╝
 
+EOF
+
+# 30-day fact-driven headline (pure-fact, no estimation).
+# BORIS_STATS_DISABLE=1 → read-only diagnostic — ledger is not polluted
+# by daily automate runs. Silent-fail on missing analyze.py or empty
+# ~/.claude/projects/ so audit.sh never breaks on the headline path.
+headline=$(BORIS_STATS_DISABLE=1 python3 "$(dirname "$0")/analyze.py" --headline --days 30 2>/dev/null)
+[ -n "$headline" ] && printf '\n  %s\n' "$headline"
+
+cat <<EOF
 PART 1 · Eight static metrics
 
 Metric                              Value        Target       Status
