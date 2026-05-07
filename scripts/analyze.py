@@ -43,7 +43,13 @@ CACHE_READ_MULT  = 0.1
 CACHE_WRITE_5M   = 1.25
 CACHE_WRITE_1H   = 2.0
 
-PROJECTS_ROOT = Path.home() / ".claude" / "projects"
+PROJECTS_ROOT = Path(os.environ.get("CLAUDE_HOME", str(Path.home() / ".claude"))) / "projects"
+
+# Headline format strings (single source of truth — referenced by render_headline,
+# tests, and any callers checking format invariants). Format params:
+#   days, cost (formatted str), hit (str %), mcps (int), dups (humanized str)
+HEADLINE_FORMAT = "{days} days: ${cost} spent | {hit}% cache hit | {mcps} zero-call MCP servers | {dups} tokens re-read"
+HEADLINE_EMPTY = "0 sessions found · run claude code first"
 
 # Junk-read detection (codeburn-inspired): paths under these dirs are
 # generated/dependency content that Claude usually shouldn't be reading.
@@ -100,6 +106,13 @@ class SessionStats:
     junk_reads: list[str] = field(default_factory=list)        # paths under node_modules/.git/etc
     file_read_counts: dict[str, int] = field(default_factory=dict)  # {abs_path: count} for dup detection
     cost_usd: float = 0.0
+    # Real-token-cost of duplicate reads: when an assistant turn re-reads a
+    # file already seen this session, the next assistant turn's input grows by
+    # the result content. We attribute that growth proportionally across the
+    # prior turn's reads (per-read share = delta / num_reads_in_prior_turn).
+    # This replaces the dashboard's `count × 600` heuristic for the headline
+    # output. Junk paths are excluded.
+    duplicate_read_tokens: int = 0
 
     @property
     def cache_hit_rate(self) -> float:
@@ -180,6 +193,13 @@ def analyze_file(path: Path, since: datetime | None = None) -> SessionStats | No
         file=path,
     )
     saw_assistant_with_usage = False
+    # State for zero-estimation duplicate-read tracking. Reads in assistant
+    # turn N produce tool_results that enter turn N+1's input context. We
+    # measure the actual input growth between turns and attribute it
+    # proportionally across the prior turn's reads. Junk-path reads are
+    # skipped (covered by junk_reads telemetry).
+    pending_reads: list[tuple[str, bool]] = []  # (file_path, is_duplicate) of prev assistant turn
+    prev_total_input = 0
 
     try:
         with path.open() as f:
@@ -217,7 +237,10 @@ def analyze_file(path: Path, since: datetime | None = None) -> SessionStats | No
                     if not stats.model:
                         stats.model = msg.get("model") or ""
                     # Extract tool_use blocks for MCP call accounting (codeburn-inspired)
+                    # and dup-read tracking (capture is_dup BEFORE incrementing
+                    # file_read_counts so the first read of a file isn't tagged dup).
                     content = msg.get("content")
+                    new_pending: list[tuple[str, bool]] = []
                     if isinstance(content, list):
                         for blk in content:
                             if not isinstance(blk, dict): continue
@@ -238,10 +261,18 @@ def analyze_file(path: Path, since: datetime | None = None) -> SessionStats | No
                                 # Junk-read detection
                                 if JUNK_PATTERN.search(fp):
                                     stats.junk_reads.append(fp)
-                                # Duplicate-read detection (per-session, normalized path)
-                                stats.file_read_counts[fp] = stats.file_read_counts.get(fp, 0) + 1
+                                # Duplicate-read detection (per-session, normalized path).
+                                # Capture is_dup BEFORE bumping count.
+                                prior_count = stats.file_read_counts.get(fp, 0)
+                                is_dup = prior_count >= 1
+                                stats.file_read_counts[fp] = prior_count + 1
+                                new_pending.append((fp, is_dup))
                     u = msg.get("usage") or {}
                     if not isinstance(u, dict):
+                        # No usage on this turn — can't compute delta. Drop
+                        # new_pending; we lose attribution for these reads,
+                        # but pending_reads carries forward unchanged so the
+                        # next valid usage turn still attributes prev turn.
                         continue
                     inp = u.get("input_tokens") or 0
                     out = u.get("output_tokens") or 0
@@ -254,6 +285,21 @@ def analyze_file(path: Path, since: datetime | None = None) -> SessionStats | No
 
                     if inp or out or cr or c5 or c1:
                         saw_assistant_with_usage = True
+
+                    # Dup-read attribution: prev turn's pending reads ↦ this
+                    # turn's input growth. Compute BEFORE we accumulate the
+                    # session totals so prev_total_input represents the
+                    # context size as the prev turn's tool_results entered.
+                    current_total_input = inp + cr + c5 + c1
+                    if pending_reads:
+                        delta = max(0, current_total_input - prev_total_input)
+                        if delta > 0:
+                            cost_per_read = delta / len(pending_reads)
+                            for read_fp, is_dup in pending_reads:
+                                if is_dup and not JUNK_PATTERN.search(read_fp):
+                                    stats.duplicate_read_tokens += int(cost_per_read)
+                    pending_reads = new_pending
+                    prev_total_input = current_total_input
 
                     stats.input_tokens   += inp
                     stats.output_tokens  += out
@@ -572,6 +618,126 @@ def render_json(sessions: list[SessionStats]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Headline (1-line fact-driven summary, pipe-safe, no ANSI)
+# ---------------------------------------------------------------------------
+_MODEL_FAMILIES = ("opus", "sonnet", "haiku")
+
+
+def _model_family(model: str) -> str:
+    m = (model or "unknown").lower()
+    for key in _MODEL_FAMILIES:
+        if key in m:
+            return key
+    return "unknown"
+
+
+def _model_mix(sessions: list[SessionStats]) -> dict[str, float]:
+    """Token-weighted distribution across model families. Returns
+    {family: pct} where pct is rounded to 2 decimals. Empty input → {}."""
+    families: dict[str, int] = {}
+    total = 0
+    for s in sessions:
+        ftokens = s.input_tokens + s.cache_read + s.cache_write_5m + s.cache_write_1h
+        if ftokens <= 0:
+            continue
+        fam = _model_family(s.model)
+        families[fam] = families.get(fam, 0) + ftokens
+        total += ftokens
+    if total <= 0:
+        return {}
+    return {k: round(v / total * 100, 2) for k, v in families.items()}
+
+
+def _zero_call_mcp_count(sessions: list[SessionStats]) -> int:
+    """Count of MCP servers configured in ~/.claude.json but invoked 0 times
+    in the supplied sessions. Mirrors audit.sh Gotcha 9 logic. Returns 0 if
+    the config is missing or unreadable — headline still emits a number."""
+    config_path = Path.home() / ".claude.json"
+    if not config_path.exists():
+        return 0
+    try:
+        d = json.loads(config_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return 0
+    if not isinstance(d, dict):
+        return 0
+    configured: set[str] = set()
+    top = d.get("mcpServers") or {}
+    if isinstance(top, dict):
+        configured |= set(top.keys())
+    projects = d.get("projects") or {}
+    if isinstance(projects, dict):
+        for pd in projects.values():
+            if isinstance(pd, dict):
+                sub = pd.get("mcpServers") or {}
+                if isinstance(sub, dict):
+                    configured |= set(sub.keys())
+    called: set[str] = set()
+    for s in sessions:
+        called |= set(s.mcp_calls.keys())
+    return len(configured - called)
+
+
+def _cache_hit_pct(sessions: list[SessionStats]) -> float:
+    """Aggregate cache hit rate across sessions."""
+    total_inp = sum(s.input_tokens for s in sessions)
+    total_cr  = sum(s.cache_read for s in sessions)
+    total_c5  = sum(s.cache_write_5m for s in sessions)
+    total_c1  = sum(s.cache_write_1h for s in sessions)
+    denom = total_inp + total_cr + total_c5 + total_c1
+    return (total_cr / denom * 100) if denom else 0.0
+
+
+def _format_cost(cost_usd: float) -> str:
+    """Format cost as plain-comma integer when ≥ 1, else 2 decimals.
+    Returns the part inside the dollar sign (HEADLINE_FORMAT prepends $)."""
+    if cost_usd >= 1:
+        return f"{cost_usd:,.0f}"
+    return f"{cost_usd:.2f}"
+
+
+def render_headline(sessions: list[SessionStats], window_days: int = 30) -> str:
+    """1-line fact-driven headline. ≤100 chars target, no ANSI, no trailing newline.
+    Empty sessions → HEADLINE_EMPTY constant (still ≤100 chars)."""
+    if not sessions:
+        return HEADLINE_EMPTY
+    total_cost = sum(s.cost_usd for s in sessions)
+    cache_hit = _cache_hit_pct(sessions)
+    zero_call_mcps = _zero_call_mcp_count(sessions)
+    dup_tokens = sum(s.duplicate_read_tokens for s in sessions)
+    return HEADLINE_FORMAT.format(
+        days=window_days,
+        cost=_format_cost(total_cost),
+        hit=f"{cache_hit:.1f}",
+        mcps=zero_call_mcps,
+        dups=humanize(dup_tokens),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Ledger (append-only JSONL of headline runs)
+# ---------------------------------------------------------------------------
+def append_ledger(stats_summary: dict, path: Path) -> None:
+    """Append one JSONL line to the ledger. Honors BORIS_STATS_DISABLE=1
+    env (no-op when set). Creates parent dir mode 0o700 and file mode 0o600
+    so cost/model_mix/file paths are not readable by other users on shared
+    hosts. Schema is the caller's responsibility — see main()'s summary dict."""
+    if os.environ.get("BORIS_STATS_DISABLE"):
+        return
+    parent = path.parent
+    old_umask = os.umask(0o077)
+    try:
+        parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if not path.exists():
+            path.touch(mode=0o600)
+        line = json.dumps(stats_summary, separators=(",", ":"))
+        with path.open("a") as f:
+            f.write(line + "\n")
+    finally:
+        os.umask(old_umask)
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 def main() -> int:
@@ -581,6 +747,8 @@ def main() -> int:
     p.add_argument("--top", type=int, default=10, help="Show top N costly sessions (default: 10).")
     p.add_argument("--project", help="Substring filter on project directory name.")
     p.add_argument("--json", action="store_true", help="Emit machine-readable JSON instead of dashboard.")
+    p.add_argument("--headline", action="store_true",
+                   help="Emit a 1-line fact-driven headline (cost/cache hit/zero-call MCPs/dup-read tokens) and append a JSONL ledger row. Set BORIS_STATS_DISABLE=1 to skip the ledger write (curl-pipe / audit.sh use this).")
     args = p.parse_args()
 
     if args.since:
@@ -613,7 +781,25 @@ def main() -> int:
             file=sys.stderr,
         )
 
-    if args.json:
+    if args.headline:
+        print(render_headline(sessions, window_days=args.days))
+        # Ledger write — silent no-op under BORIS_STATS_DISABLE=1.
+        # The audit.sh integration and headline-only.sh curl-pipe both set
+        # this env so the ledger only grows on user-initiated runs.
+        if not os.environ.get("BORIS_STATS_DISABLE"):
+            ledger_path = Path.home() / ".boris-stats" / "history.jsonl"
+            summary = {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "window_days": args.days,
+                "cost_usd": round(sum(s.cost_usd for s in sessions), 4),
+                "cache_hit": round(_cache_hit_pct(sessions), 2),
+                "zero_call_mcps": _zero_call_mcp_count(sessions),
+                "duplicate_read_tokens": sum(s.duplicate_read_tokens for s in sessions),
+                "model_mix": _model_mix(sessions),
+            }
+            append_ledger(summary, ledger_path)
+        return 0
+    elif args.json:
         print(render_json(sessions))
     else:
         print(render_text(sessions, top_n=args.top))

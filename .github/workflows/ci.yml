@@ -21,11 +21,14 @@ jobs:
         run: |
           bash -n scripts/audit.sh
           bash -n scripts/archive-helper.sh
+          bash -n scripts/install.sh
+          bash -n scripts/uninstall.sh
+          bash -n scripts/headline-only.sh
       - name: shellcheck (warnings as info, errors fail)
         run: |
           # SC2086 (word splitting), SC2155 (declare+assign), SC2034 (unused) are noisy in audit-style scripts.
           # We surface them but don't fail the build on them — only on actual errors (SC2xxx severity error).
-          shellcheck --severity=error scripts/audit.sh scripts/archive-helper.sh
+          shellcheck --severity=error scripts/audit.sh scripts/archive-helper.sh scripts/install.sh scripts/uninstall.sh
 
   python:
     name: python (compile + pytest)
@@ -75,3 +78,45 @@ jobs:
         run: grep -q "Dead symlinks" audit-output.txt
       - name: Verify Part 1 metrics rendered
         run: grep -q "PART 1 · Eight static metrics" audit-output.txt
+      - name: Verify headline appears between banner and PART 1
+        run: grep -q "run claude code first" audit-output.txt
+
+  smoke-install:
+    name: install.sh smoke (detection + --dry-run + honest-bail)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python (needed for --dry-run dep check)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: --dry-run with claude HOME fixture
+        run: |
+          export FAKE_HOME="$RUNNER_TEMP/fake-claude-home"
+          mkdir -p "$FAKE_HOME/.claude/projects/test-proj"
+          # Use --dry-run so no files are actually written outside HOME
+          HOME="$FAKE_HOME" bash scripts/install.sh --dry-run > install-dry-run.txt
+          cat install-dry-run.txt
+          grep -q "would git clone" install-dry-run.txt
+          grep -q "would mkdir" install-dry-run.txt
+          grep -q "would ln -sn" install-dry-run.txt
+      - name: honest-bail (non-Claude agent only)
+        run: |
+          export FAKE_HOME="$RUNNER_TEMP/fake-home-cursor-only"
+          mkdir -p "$FAKE_HOME/.cursor"
+          # Strip Claude Code from PATH so detection falls to cursor soft-detect
+          HOME="$FAKE_HOME" PATH="/usr/bin:/bin:/usr/sbin:/sbin" bash scripts/install.sh > honest-bail.txt
+          cat honest-bail.txt
+          grep -q "cursor" honest-bail.txt
+          grep -q "Boris-Token-Slim audits Claude Code" honest-bail.txt
+          grep -q "github.com/ZCDeng/Boris-Token-Slim/issues" honest-bail.txt
+      - name: no-agent fallback
+        run: |
+          export FAKE_HOME="$RUNNER_TEMP/fake-home-empty"
+          HOME="$FAKE_HOME" PATH="/usr/bin:/bin" bash scripts/install.sh > no-agent.txt
+          grep -q "No supported AI coding agent detected" no-agent.txt
+      - name: uninstall.sh --dry-run (no install)
+        run: |
+          bash scripts/uninstall.sh --dry-run > uninstall-dry.txt
+          cat uninstall-dry.txt
+          grep -q "no install detected" uninstall-dry.txt
