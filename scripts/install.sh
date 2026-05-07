@@ -16,7 +16,7 @@ VERSION="v0.2.0"
 REPO_URL="https://github.com/ZCDeng/Boris-Token-Slim.git"
 RELEASE_TARBALL_URL="https://github.com/ZCDeng/Boris-Token-Slim/releases/download/${VERSION}/Boris-Token-Slim-${VERSION}.tar.gz"
 ISSUES_URL="https://github.com/ZCDeng/Boris-Token-Slim/issues"
-EXPECTED_INSTALL_TARBALL_SHA256="<release-time fill>"
+EXPECTED_INSTALL_TARBALL_SHA256="91f24a21be3cd698c309371e8a257dd9ec14a2d8242252010fc7c65af0853e92"
 
 INSTALL_PARENT="$HOME/.local/share/boris-token-slim"
 INSTALL_DIR="$INSTALL_PARENT/$VERSION"
