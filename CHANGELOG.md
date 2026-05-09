@@ -106,3 +106,6 @@ These were found while cleaning author's own Claude Code; not in the original 9-
 - Iron rule across the project: **archive, never delete**. All cleanup operations move to `~/.claude/_tokenslim_archive_<YYYYMMDD>/` so users can `mv` back if they regret.
 
 [v0.1.0]: https://github.com/ZCDeng/Boris-Token-Slim/releases/tag/v0.1.0
+
+[v0.3.0]: https://github.com/ZCDeng/Boris-Token-Slim/releases/tag/v0.3.0
+[v0.2.0]: https://github.com/ZCDeng/Boris-Token-Slim/releases/tag/v0.2.0
