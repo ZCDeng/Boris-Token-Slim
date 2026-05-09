@@ -197,6 +197,20 @@ Parses every Claude Code session transcript in `~/.claude/projects/` and gives y
 
 `--json` mode emits stable schema for CI / cron pipelines. See [`references/methodology.md`](references/methodology.md) for the math.
 
+### Option D: Counterfactual token audit (no API calls)
+
+```bash
+python3 <(curl -fsSL https://raw.githubusercontent.com/ZCDeng/Boris-Token-Slim/v0.3.0/scripts/eval.py)
+```
+
+Measures your **current** `~/.claude/` configuration's structural input-token overhead and computes a counterfactual "after Boris" estimate using the skill's own thresholds. Pure file-system analysis — no API calls, no cost, fully reproducible.
+
+- Exact measurements: `CLAUDE.md`, `MEMORY.md`, skill descriptions
+- Estimates (flagged): MCP schema size (codeburn empirical), optional plugin hook context
+- Output: text report + JSON with `measured_only` and `with_estimates` headlines
+
+See [`evals/README.md`](evals/README.md) for the design rationale (why this replaces the hypothetical 3-arm API re-run).
+
 ---
 
 ## How this compares to Token Optimizer

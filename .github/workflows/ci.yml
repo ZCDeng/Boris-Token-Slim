@@ -48,6 +48,10 @@ jobs:
         run: python -m compileall scripts/ tests/
       - name: pytest
         run: python -m pytest tests/ -v
+      - name: eval.py smoke
+        run: |
+          python3 scripts/eval.py --json > /tmp/eval-smoke.json
+          python3 -c "import json; d=json.load(open('/tmp/eval-smoke.json')); assert 'measured_only' in d; assert 'with_estimates' in d"
 
   smoke-audit:
     name: audit.sh smoke (Linux fixture HOME)
