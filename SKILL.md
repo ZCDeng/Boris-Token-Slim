@@ -1,6 +1,6 @@
 ---
 name: Boris-Token-Slim
-description: 审计并精简 Claude Code 的隐性 token 开销——CLAUDE.md 臃肿、MEMORY 过期记录、插件爆炸、MCP 常驻、死 symlink、scientific-skills 大类、重复 skill。用户说"优化 token""Claude Code 变慢了""减少 token 消耗""claude 变笨了""额度不够用""audit claude code""slim down claude code"时触发。也响应 /Boris-Token-Slim。
+description: 审计精简 Claude Code 隐性 token 开销——CLAUDE.md 臃肿、MEMORY 过期、插件爆炸、MCP 常驻、死 symlink、重复 skill。触发：优化 token、Claude Code 变慢、claude 变笨、slim down claude code、/Boris-Token-Slim。
 user-invocable: true
 ---
 
@@ -174,6 +174,34 @@ python3 -c "import json; d=json.load(open('/Users/\$USER/.claude.json')); print(
    按命名规律分组（perspective 系列 / 写作系列 / UI 模板系列 / 编程角色短名 / dbs 系列等），用 `AskUserQuestion` 让用户勾选分组，全组归档 or 全组保留。
    不要一条条问——每次 AskUserQuestion 最多 4 题，4 选项，按组问最高效。
 
+4. **Skill description 精简**（高 ROI、容易遗漏的子步骤）：
+   每个启用 skill 的 `description` 字段会出现在**每次会话**的 system-reminder 里。10 个 description 各 500 字符 = 5000 字符/会话永久燃烧。
+
+   快速识别：
+   ```python
+   import os, re, yaml
+   for d in sorted(os.listdir('/Users/USER/.claude/skills')):
+       f = os.path.join(os.path.realpath(os.path.join('/Users/USER/.claude/skills', d)), 'SKILL.md')
+       if os.path.isfile(f):
+           m = re.match(r'^---\n(.*?)\n---', open(f).read(), re.S)
+           if m:
+               try: print(f"{len(yaml.safe_load(m.group(1)).get('description','')):4d}  {d}")
+               except: print(f"   ?  {d}  YAML BROKEN")
+   ```
+
+   按字符数倒序，处理 >200c 的；典型可砍掉 50–70%。详细方法（压缩原则、YAML 陷阱、批量改写脚本）见 `references/skill-description-slimming.md`。
+
+5. **清理 user-invocable-skills.json 失效条目**：
+   ```python
+   import json, os
+   F = '/Users/USER/.claude/user-invocable-skills.json'
+   cfg = json.load(open(F))
+   cfg['userInvokableSkills'] = [s for s in cfg['userInvokableSkills']
+                                  if os.path.exists(os.path.join('/Users/USER/.claude/skills', s))]
+   json.dump(cfg, open(F, 'w'), ensure_ascii=False, indent=2)
+   ```
+   归档 skill 后斜杠菜单白名单常残留失效条目，用户点中即报错。
+
 ### Phase 4: 报告
 
 结束时输出 before/after 表：
@@ -194,9 +222,10 @@ python3 -c "import json; d=json.load(open('/Users/\$USER/.claude.json')); print(
 ## 参考资料
 
 - `references/9-patterns.md` — 原文 9 个浪费模式速查
-- `references/gotchas.md` — 本 skill 作者踩过的坑（dead symlinks、\_archive 位置、sub-plugin 爆炸）
+- `references/gotchas.md` — 本 skill 作者踩过的坑（dead symlinks、\_archive 位置、sub-plugin 爆炸、YAML 陷阱）
 - `references/archive-layout.md` — 归档目录结构规范
 - `references/methodology.md` — analyze.py 的数据源/计费公式/方法学
+- `references/skill-description-slimming.md` — Skill description 精简方法论（审计/分级/压缩原则/YAML 陷阱/批量改写脚本）
 - `scripts/audit.sh` — 一键审计脚本，输出 9 指标表
 - `scripts/analyze.py` — 回溯解析 transcript JSONL，给出 cost/cache/Pattern 风险报告
 - `scripts/archive-helper.sh` — 批量归档工具

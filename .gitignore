@@ -10,3 +10,6 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .mypy_cache/
+
+# local plugin runtime state (homunculus, etc.)
+.claude/
