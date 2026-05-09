@@ -12,7 +12,7 @@ A Claude Code [skill](https://docs.claude.com/en/docs/claude-code/skills) that a
 >
 > *— [@Mnilax, on X](https://x.com/i/status/2050321700802408552) · 5.5K likes*
 
-Boris Cherny (Claude Code's creator) first surfaced the **9-pattern framework** on a podcast; [@Mnilax / Mnimiy](https://youmind.com/s/MieRjYvn3NFzLd) then instrumented **430 hours** of his own Claude Code usage with an HTTP proxy and put hard percentages on each pattern — **73% of all tokens were waste**, 27% productive. This skill operationalizes both: the 9 categories + 7 additional gotchas the author hit cleaning his own machine (most notably: `commands/_archive/` still gets scanned by the harness, so moving stuff there makes names *longer*).
+Boris Cherny (Claude Code's creator) first surfaced the **9-pattern framework** on a podcast; [@Mnilax / Mnimiy](https://youmind.com/s/MieRjYvn3NFzLd) then instrumented **430 hours** of his own Claude Code usage with an HTTP proxy and put hard percentages on each pattern — **73% of all tokens were waste**, 27% productive. This skill operationalizes both: the 9 categories + 11 additional gotchas the author hit cleaning his own machine (most notably: `commands/_archive/` still gets scanned by the harness, so moving stuff there makes names *longer*; and skill `description` fields silently break YAML in three ways while still rendering "fine" in the system-reminder).
 
 > **Author's last 30 days (fact-driven headline):**
 > `$15,734 spent | 89.4% cache hit | 4 zero-call MCP servers | 1.5M tokens re-read`
@@ -58,7 +58,7 @@ Boris Cherny（Claude Code 作者）先在 podcast 里提出**9 模式分类框�
 | Skill 数 | < 50 | scientific-skills 142 包一次性挂载、死 symlink 占清单位置 |
 | 死 symlink | = 0 | 指向 `~/.claude/.agents/skills/*` 等已删目录的僵尸链接 |
 
-### 独有的 7 个坑（原文没提）
+### 独有的 11 个坑（原文没提）
 
 1. **`commands/_archive/` 陷阱**——挪进去名字反而更长（被前缀成 `_archive:xxx:yyy`），必须挪出 `commands/` 目录才真正隔离
 2. **死 symlink 占位**——81 个指向不存在目录的 symlink 仍在 skill 清单里（作者实测）
@@ -67,6 +67,12 @@ Boris Cherny（Claude Code 作者）先在 podcast 里提出**9 模式分类框�
 5. **MCP 藏在 project scope**——`claude mcp list` 显示 6 个，`~/.claude.json` 根下只有 2 个，剩下在 `projects[<path>].mcpServers` 里悄悄激活
 6. **重启才能看到真实 skill 清单**——Claude Code 只在 session 启动时扫 skill，清理后的变化当前 session 看不到
 7. **僵尸配置**——`MEMORY.md` 写着"2026-04-XX 已移除 XX 模块"，但 `CLAUDE.md` 里那个模块的 3 段配置还在每轮加载
+8. **`claude mcp remove` 静默重生**——某些 plugin 在 SessionStart 自动重新注册 MCP，移除等于白做。差额可由 `claude mcp list` 的数量减去 `~/.claude.json::mcpServers` 数量看出来。
+9. **audit.sh 自身的 false negative**——sub-plugin 套件计入 plugin=1 但塞 8 个 SKILL.md 进 `skills/`。交叉 metric 1 与 metric 5 才能识别。
+10. **Skill description 的 YAML 雷区**——前置双引号截断、mid-line 英文 `Triggers:`/`Examples:` 触发 mapping 错误、block scalar 暗藏换行字符。harness 用宽松 parser 显示"正常"，PyYAML 严格视角下却拿不到 description。
+11. **`user-invocable-skills.json` 残留**——归档/删除 skill 后斜杠菜单白名单不会自动同步，用户点中失效条目就报错。
+
+新增的 **Skill description 精简方法论**（坑 10 的解法）独立成篇：见 [`references/skill-description-slimming.md`](references/skill-description-slimming.md)。每个启用 skill 的 description 都注入每次会话的 system-reminder——典型 30+ skill 的机器，可压 50–70%（实测 8500c → 2800c，省每会话 ~2000 tokens）。
 
 ### 铁律：归档不删除
 
@@ -263,7 +269,7 @@ When invoked inside Claude Code, the skill walks you through 4-5 cleanup phases:
 2. **MEMORY.md index-ification** — archive stale project state snapshots, keep only feedback/reference entries
 3. **CLAUDE.md slim** — strip Anthropic-blog boilerplate, dead-module configs, redundant skill triggers
 4. **MCP server audit** — move low-frequency MCPs off the always-on list
-5. **Skill audit** *(requires restart)* — clean dead symlinks, archive big packs, categorical culling
+5. **Skill audit** *(requires restart)* — clean dead symlinks, archive big packs, categorical culling, **compress oversized `description` fields** (every enabled skill's description is injected into every session's system-reminder — see [`references/skill-description-slimming.md`](references/skill-description-slimming.md)), **prune `user-invocable-skills.json`** of entries pointing at archived skills (otherwise the slash menu errors on click)
 
 ## Three iron rules
 
@@ -278,6 +284,9 @@ When invoked inside Claude Code, the skill walks you through 4-5 cleanup phases:
 - **Sub-plugin explosion** — `huggingface-skills` installs 8 siblings; `financial-services-plugins` installs 7. Audit strategy: keep the umbrella entry, remove siblings.
 - **Same-name plugin installed twice** — across different marketplaces. Easy to miss, shows up as `homunculus@homunculus` + `homunculus@humanplane`.
 - **MCP in project scope** — `claude mcp list` shows all, but `~/.claude.json` root only shows user-scope ones. Project-scope MCPs for `/Users/$USER` still activate silently.
+- **MCP zombie resurrection** — some plugins re-register MCPs on SessionStart, so `claude mcp remove` is reverted on restart. Detect via `claude mcp list` count vs. `~/.claude.json::mcpServers` count.
+- **Skill description YAML traps** — leading double-quotes truncate, mid-line English `Triggers:` / `Examples:` break strict YAML, block scalars carry hidden newlines. The harness uses a permissive parser so descriptions look fine while strict tooling sees 0 chars. See [`references/skill-description-slimming.md`](references/skill-description-slimming.md) for the full audit + batch-rewrite playbook.
+- **Slash-menu whitelist orphans** — `~/.claude/user-invocable-skills.json` is not synced when skills are archived/deleted; clicking a stale entry errors out. Phase 5 prunes it after skill cleanup.
 
 ## Sample audit output
 

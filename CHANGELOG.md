@@ -2,6 +2,20 @@
 
 All notable changes to Boris-Token-Slim will be documented in this file. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Skill description slimming methodology** (`references/skill-description-slimming.md`): every enabled skill's `description` field is loaded into every session's system-reminder — a permanent, per-session burn that's invisible to most audits. The reference doc covers an enumerate-and-rank script, a length-based action table (>400c must-fix → <150c leave-alone), compression rules (preserve one-liner + 2–3 trigger phrases; strip exhaustive feature lists / bilingual duplicates / implementation detail), three YAML write-patterns that silently break strict parsers (leading quote truncation, mid-line English colons, block-scalar newline overhead), and a batch rewriter that handles symlinks. Real-machine case: 43 skills, 8500c → 2800c (-67%, ~2000 tokens saved per session).
+- **`SKILL.md` Phase 3 expansion**: two new sub-steps in skill-audit phase — (4) audit & compress descriptions; (5) prune `user-invocable-skills.json` of entries pointing at archived/deleted skill dirs (stale entries cause slash-menu invocation errors).
+- **Gotcha 10 — YAML pitfalls in `description`**: leading double-quote truncation, mid-line English `Triggers:`/`Examples:` triggering "mapping values are not allowed here", and block-scalar newline overhead. Includes a self-check `yaml.safe_load` audit script. Symptom: harness uses a permissive parser so the description "looks fine" while strict parsing returns 0 chars and downstream tooling silently breaks.
+- **Gotcha 11 — `user-invocable-skills.json` orphan entries**: archiving or deleting a skill does NOT prune the slash-menu whitelist, so the menu surfaces dead entries that error on click. Includes a one-liner cleanup script.
+- **`.gitignore`**: ignore `.claude/` runtime state (e.g. `homunculus/observations.jsonl`) so local plugin state never leaks into commits.
+
+### Why this matters
+
+Skill description bloat is a Pattern 1 sub-mode that audit.sh's byte counters don't catch — they look at `CLAUDE.md` / `MEMORY.md`, not the skill manifest descriptions injected by the harness. For a 30+ skill setup it's commonly the largest *unaccounted* per-session cost, and the YAML pitfalls make it a self-perpetuating problem (descriptions look intact but their semantic boundary is broken, so future tooling can't validate them).
+
 ## [v0.2.0] — 2026-05-07
 
 ### Added
