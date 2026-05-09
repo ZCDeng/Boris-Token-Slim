@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Boris-Token-Slim · headline-only curl-pipe entry
-# bash <(curl -fsSL https://raw.githubusercontent.com/ZCDeng/Boris-Token-Slim/v0.2.0/scripts/headline-only.sh)
+# bash <(curl -fsSL https://raw.githubusercontent.com/ZCDeng/Boris-Token-Slim/v0.3.0/scripts/headline-only.sh)
 #
 # Runs analyze.py --headline on YOUR Claude Code sessions.
-# Pinned to immutable v0.2.0 tag + sha256-verified. Read-only:
+# Pinned to immutable v0.3.0 tag + sha256-verified. Read-only:
 # BORIS_STATS_DISABLE=1 is set so the ledger is never written.
 #
 # Requires python3 + (git or curl or wget). No other deps.
 set -euo pipefail
 
-VERSION="v0.2.0"
+VERSION="v0.3.0"
 REPO_URL="https://github.com/ZCDeng/Boris-Token-Slim.git"
 RAW_BASE="https://raw.githubusercontent.com/ZCDeng/Boris-Token-Slim/${VERSION}"
 EXPECTED_ANALYZE_SHA256="4a3297cf0cc7a436cc663bf9dfeb00635dd98f71000740dffad48eb48e9802a3"

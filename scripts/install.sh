@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Boris-Token-Slim install script
-# Single-entry: bash <(curl -fsSL https://raw.githubusercontent.com/ZCDeng/Boris-Token-Slim/v0.2.0/scripts/install.sh)
+# Single-entry: bash <(curl -fsSL https://raw.githubusercontent.com/ZCDeng/Boris-Token-Slim/v0.3.0/scripts/install.sh)
 #
 # Detects 5 agents (Claude Code / Cursor / Windsurf / Codex / Gemini CLI),
 # honest-bails for non-CC agents, installs Boris as a Claude Code skill
-# (symlink ~/.claude/skills/boris-token-slim → ~/.local/share/boris-token-slim/v0.2.0/).
+# (symlink ~/.claude/skills/boris-token-slim → ~/.local/share/boris-token-slim/v0.3.0/).
 #
 # Trust: tarball sha256-verified (python3 hashlib). Git-clone path trusts
 # git's built-in tag→commit integrity. Loader/payload split: install.sh
@@ -12,11 +12,11 @@
 # release asset and excludes install.sh + uninstall.sh.
 set -euo pipefail
 
-VERSION="v0.2.0"
+VERSION="v0.3.0"
 REPO_URL="https://github.com/ZCDeng/Boris-Token-Slim.git"
 RELEASE_TARBALL_URL="https://github.com/ZCDeng/Boris-Token-Slim/releases/download/${VERSION}/Boris-Token-Slim-${VERSION}.tar.gz"
 ISSUES_URL="https://github.com/ZCDeng/Boris-Token-Slim/issues"
-EXPECTED_INSTALL_TARBALL_SHA256="91f24a21be3cd698c309371e8a257dd9ec14a2d8242252010fc7c65af0853e92"
+EXPECTED_INSTALL_TARBALL_SHA256="66b6a63d33c964748a27971beb4dca0bda3bf2c182a05c78b356bb26eaab0193"
 
 INSTALL_PARENT="$HOME/.local/share/boris-token-slim"
 INSTALL_DIR="$INSTALL_PARENT/$VERSION"

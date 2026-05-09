@@ -22,7 +22,7 @@ Skill description bloat is a Pattern 1 sub-mode that the byte counters don't cat
 
 ### Trust
 
-- Tarball sha256: TODO (filled at release time, see `release: pin v0.3.0 install tarball sha256` commit)
+- Tarball sha256: `66b6a63d33c964748a27971beb4dca0bda3bf2c182a05c78b356bb26eaab0193` (loader/payload split — tarball excludes install.sh/uninstall.sh)
 - analyze.py sha256: unchanged from v0.2.0 (no behavior changes)
 
 ## [v0.2.0] — 2026-05-07
