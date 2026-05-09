@@ -245,7 +245,7 @@ If you want **dashboards**, install codeburn (`npm install -g codeburn`). If you
 | 7 | Active `settings.json` hooks | < 3 |
 | 8 | `BASH_MAX_OUTPUT_LENGTH` env / shell profile | ≤ 15000 |
 
-Plus **11 gotcha detectors** that print actionable evidence (paths, names, line numbers):
+Plus **14 gotcha detectors** that print actionable evidence (paths, names, line numbers):
 
 | # | Detector | What it finds |
 |---|----------|---------------|
@@ -260,6 +260,9 @@ Plus **11 gotcha detectors** that print actionable evidence (paths, names, line 
 | 9 | Configured-but-uncalled MCP | MCPs configured but invoked 0 times in last 30 days of transcripts (codeburn-style) |
 | 10 | Junk reads | Read/Grep into `node_modules`/`.git`/`dist`/etc (codeburn-style) |
 | 11 | Duplicate reads | Same file re-read ≥3 times in one session (codeburn-style) |
+| 12 | **Oversized skill descriptions** | Skill `description` fields > 300 chars (every enabled skill loads into every session's system-reminder) |
+| 13 | **YAML pitfalls in descriptions** | Three patterns that silently break strict YAML parsers: leading-quote truncation, mid-line capitalized colons, block scalars |
+| 14 | **Orphan slash-menu whitelist** | `user-invocable-skills.json` entries pointing at archived/deleted skill dirs (cause `/` menu errors) |
 
 ## What it does (interactive, safe)
 

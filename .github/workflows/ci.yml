@@ -66,6 +66,28 @@ jobs:
           echo '{"plugins":{}}' > "$FAKE_HOME/plugins/installed_plugins.json"
           # Add one dead symlink to verify Gotcha #1
           ln -s /nonexistent-target "$FAKE_HOME/skills/dead-link"
+          # Detector 12 fixture: oversized description (>300c)
+          mkdir -p "$FAKE_HOME/skills/skill-oversized"
+          cat > "$FAKE_HOME/skills/skill-oversized/SKILL.md" <<'SKILLEOF'
+          ---
+          name: skill-oversized
+          description: This is an exhaustively long description that lists every feature, enumerates all trigger phrases bilingually, repeats the same idea, includes implementation details that should live in the body. 触发：触发1、触发2、触发3、触发4、触发5、触发6、触发7、触发8、触发9、触发10、触发11、触发12、触发13、触发14、触发15、触发16。Use this skill whenever you encounter X, Y, Z, A, B, C, D, E, F, G, H, I, J, K, L, M.
+          ---
+          body
+          SKILLEOF
+          # Detector 13 fixture: YAML pitfall (mid-line capitalized colon)
+          mkdir -p "$FAKE_HOME/skills/skill-colon-trap"
+          cat > "$FAKE_HOME/skills/skill-colon-trap/SKILL.md" <<'SKILLEOF'
+          ---
+          name: skill-colon-trap
+          description: Use when generating reports. Triggers: weekly review, exec audience.
+          ---
+          body
+          SKILLEOF
+          # Detector 14 fixture: orphan whitelist entry pointing at deleted skill
+          cat > "$FAKE_HOME/user-invocable-skills.json" <<'JSONEOF'
+          {"userInvokableSkills": ["skill-oversized", "skill-deleted-orphan"]}
+          JSONEOF
       - name: Run audit.sh against fixture HOME
         env:
           CLAUDE_HOME: ${{ runner.temp }}/fake-claude
@@ -80,6 +102,12 @@ jobs:
         run: grep -q "PART 1 · Eight static metrics" audit-output.txt
       - name: Verify headline appears between banner and PART 1
         run: grep -q "run claude code first" audit-output.txt
+      - name: Verify Detector 12 (oversized descriptions)
+        run: grep -q "Oversized skill descriptions" audit-output.txt
+      - name: Verify Detector 13 (YAML pitfalls)
+        run: grep -q "YAML pitfalls in skill descriptions" audit-output.txt
+      - name: Verify Detector 14 (orphan whitelist entries)
+        run: grep -q "Orphan slash-menu whitelist entries" audit-output.txt
 
   smoke-install:
     name: install.sh smoke (detection + --dry-run + honest-bail)

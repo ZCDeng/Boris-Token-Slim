@@ -3,7 +3,7 @@
 # Two layers:
 #   1. Eight static metrics (sizes, counts, thresholds — including codeburn-inspired
 #      CLAUDE.md @-import expansion and BASH_MAX_OUTPUT_LENGTH cap)
-#   2. Eleven gotcha detectors (concrete evidence: paths, names, line numbers)
+#   2. Fourteen gotcha detectors (concrete evidence: paths, names, line numbers)
 # Exit code 0 always — this is a report, not a gate.
 
 set -u
@@ -199,14 +199,15 @@ Metric                              Value        Target       Status
 EOF
 
 # ============================================================================
-# LAYER 2 · Eleven gotcha detectors
+# LAYER 2 · Fourteen gotcha detectors
 # Each prints concrete evidence (paths, names) the user can act on.
 # ============================================================================
-echo "PART 2 · Eleven gotcha detectors (with locatable evidence)"
+echo "PART 2 · Fourteen gotcha detectors (with locatable evidence)"
 echo "          (dead symlinks · _archive trap · sub-plugin explosion ·"
 echo "           same-name plugin · project-scope MCP · zombie configs ·"
 echo "           MCP zombie resurrection · embedded sub-skills ·"
-echo "           configured-but-uncalled MCP · junk reads · duplicate reads)"
+echo "           configured-but-uncalled MCP · junk reads · duplicate reads ·"
+echo "           oversized skill descriptions · YAML pitfalls · whitelist orphans)"
 echo ""
 
 issues=0
@@ -753,11 +754,164 @@ print(f"TOTAL_EXTRA\t{total_extra}")
   fi
 fi
 
+# ---------- Gotchas 12, 13, 14: skill description + whitelist audit ----------
+# One Python pass walks ~/.claude/skills/* and emits three TSV sections:
+#   OVERSIZED_*  — descriptions > 300 chars (per-session token burn)
+#   YAML_TRAP_*  — three patterns that silently break strict YAML parsers
+#   ORPHAN_*     — user-invocable-skills.json entries pointing at missing dirs
+desc_audit=""
+if [ -d "$CLAUDE_HOME/skills" ] && command -v python3 >/dev/null 2>&1; then
+  desc_audit=$(pyf '
+import os, re, json, sys
+skills_dir = sys.argv[1]
+whitelist = sys.argv[2]
+
+FM_RE = re.compile(r"^---\n(.*?)\n---", re.S)
+RE_LEADING_QUOTE_TRUNC = re.compile(r"^\"[^\"\n]+\"\s*\S+")
+RE_MIDLINE_LABEL = re.compile(r" [A-Z][A-Za-z]+:\s")
+
+def parse_description(fm_text):
+    lines = fm_text.split("\n")
+    for i, line in enumerate(lines):
+        if not line.startswith("description:"):
+            continue
+        rest = line[len("description:"):].lstrip()
+        if rest.startswith("|") or rest.startswith(">"):
+            block = []
+            for j in range(i + 1, len(lines)):
+                ln = lines[j]
+                if ln.startswith("  ") or ln.strip() == "":
+                    block.append(ln.strip())
+                else:
+                    break
+            return "\n".join(b for b in block if b), ["block-scalar"]
+        traps = []
+        if RE_LEADING_QUOTE_TRUNC.match(rest):
+            traps.append("leading-quote-trunc")
+        no_url = re.sub(r"https?://\S+", "", rest)
+        if RE_MIDLINE_LABEL.search(" " + no_url):
+            traps.append("mid-line-colon")
+        return rest, traps
+    return None, []
+
+OVERSIZED, TRAPS, PRESENT = [], [], set()
+try:
+    entries = sorted(os.listdir(skills_dir))
+except OSError:
+    entries = []
+
+for entry in entries:
+    full = os.path.join(skills_dir, entry)
+    if os.path.exists(full):
+        PRESENT.add(entry)
+    real = os.path.realpath(full)
+    smd = os.path.join(real, "SKILL.md")
+    if not os.path.isfile(smd):
+        continue
+    try:
+        text = open(smd, encoding="utf-8", errors="ignore").read()
+    except Exception:
+        continue
+    m = FM_RE.match(text)
+    if not m:
+        continue
+    desc, traps = parse_description(m.group(1))
+    if desc and len(desc) > 300:
+        OVERSIZED.append((len(desc), entry))
+    if traps:
+        sample = (desc or "")[:60].replace("\t", " ").replace("\n", " ")
+        TRAPS.append((entry, traps, sample))
+
+OVERSIZED.sort(reverse=True)
+print(f"OVERSIZED_COUNT\t{len(OVERSIZED)}")
+print(f"OVERSIZED_TOTAL_CHARS\t{sum(s for s, _ in OVERSIZED)}")
+for sz, name in OVERSIZED[:8]:
+    print(f"OVERSIZED\t{sz}\t{name}")
+
+print(f"YAML_TRAPS_COUNT\t{len(TRAPS)}")
+for name, traps, sample in TRAPS[:8]:
+    joined = ",".join(traps)
+    print(f"YAML_TRAP\t{name}\t{joined}\t{sample}")
+
+orphan_count = 0
+orphans = []
+if whitelist and os.path.isfile(whitelist):
+    try:
+        cfg = json.load(open(whitelist))
+        listed = cfg.get("userInvokableSkills", [])
+        if isinstance(listed, list):
+            orphans = [s for s in listed if s not in PRESENT]
+            orphan_count = len(orphans)
+    except Exception:
+        pass
+print(f"ORPHAN_COUNT\t{orphan_count}")
+for o in orphans[:8]:
+    print(f"ORPHAN\t{o}")
+' "$CLAUDE_HOME/skills" "$CLAUDE_HOME/user-invocable-skills.json")
+fi
+
+# ---------- Gotcha 12: oversized skill descriptions ----------
+oversized_count=$(printf '%s' "$desc_audit" | awk -F'\t' '/^OVERSIZED_COUNT\t/{print $2; exit}')
+oversized_total=$(printf '%s' "$desc_audit" | awk -F'\t' '/^OVERSIZED_TOTAL_CHARS\t/{print $2; exit}')
+oversized_count="${oversized_count:-0}"
+oversized_total="${oversized_total:-0}"
+if [ "$oversized_count" -gt 0 ]; then
+  details="$oversized_count skill description(s) > 300 chars (~75 tokens each — every enabled skill's description loads into every session's system-reminder):"
+  details+=$'\n'""
+  while IFS=$'\t' read -r kind sz name; do
+    [ "$kind" = "OVERSIZED" ] || continue
+    details+=$'\n'"  ${sz}c  $name"
+  done <<< "$desc_audit"
+  est_tokens=$((oversized_total / 4))
+  details+=$'\n'""
+  details+=$'\n'"Total over-threshold chars: $oversized_total (~${est_tokens} tokens / session, permanently)"
+  details+=$'\n'""
+  details+=$'\n'"Fix: see references/skill-description-slimming.md (compression rules + batch rewriter)."
+  print_finding "Oversized skill descriptions (per-session token burn)" "$details"
+fi
+
+# ---------- Gotcha 13: YAML pitfalls in skill descriptions ----------
+yaml_traps_count=$(printf '%s' "$desc_audit" | awk -F'\t' '/^YAML_TRAPS_COUNT\t/{print $2; exit}')
+yaml_traps_count="${yaml_traps_count:-0}"
+if [ "$yaml_traps_count" -gt 0 ]; then
+  details="$yaml_traps_count skill description(s) match YAML pitfall patterns. Strict parsers (PyYAML) lose the description field even though Claude Code's permissive parser still renders it — downstream tooling silently breaks:"
+  details+=$'\n'""
+  while IFS=$'\t' read -r kind name traps sample; do
+    [ "$kind" = "YAML_TRAP" ] || continue
+    details+=$'\n'"  $name  [$traps]"
+    [ -n "$sample" ] && details+=$'\n'"    sample: ${sample}..."
+  done <<< "$desc_audit"
+  details+=$'\n'""
+  details+=$'\n'"Patterns:"
+  details+=$'\n'"  • leading-quote-trunc  description: \"foo\"bar  (closing \" cuts the rest)"
+  details+=$'\n'"  • mid-line-colon       description: ... Triggers: / Examples: / Note: ..."
+  details+=$'\n'"  • block-scalar         description: |  (hidden newlines; prefer single-line)"
+  details+=$'\n'""
+  details+=$'\n'"Fix: see references/skill-description-slimming.md § YAML 写作陷阱."
+  print_finding "YAML pitfalls in skill descriptions" "$details"
+fi
+
+# ---------- Gotcha 14: orphan slash-menu whitelist entries ----------
+orphan_count=$(printf '%s' "$desc_audit" | awk -F'\t' '/^ORPHAN_COUNT\t/{print $2; exit}')
+orphan_count="${orphan_count:-0}"
+if [ "$orphan_count" -gt 0 ]; then
+  details="$orphan_count entry(ies) in ~/.claude/user-invocable-skills.json point at non-existent skill dirs:"
+  details+=$'\n'""
+  while IFS=$'\t' read -r kind name; do
+    [ "$kind" = "ORPHAN" ] || continue
+    details+=$'\n'"  $name"
+  done <<< "$desc_audit"
+  details+=$'\n'""
+  details+=$'\n'"Symptom: clicking the entry in / menu fails. Skills that were archived after the whitelist was written stay in the slash menu."
+  details+=$'\n'"Fix: see references/gotchas.md § 坑 11 (one-liner cleanup script)."
+  print_finding "Orphan slash-menu whitelist entries" "$details"
+fi
+
 # ============================================================================
 # Summary
 # ============================================================================
 if [ "$issues" -eq 0 ]; then
-  echo "  ✅ No gotchas detected. (All eleven detectors clean.)"
+  echo "  ✅ No gotchas detected. (All fourteen detectors clean.)"
   echo ""
 fi
 
