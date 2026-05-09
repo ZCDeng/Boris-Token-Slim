@@ -61,8 +61,8 @@ def test_parse_skill_descriptions_with_traps():
 def test_build_report_honesty_notes():
     """Report must flag MCP and plugin tokens as estimates."""
     current = {
-        "claude_md": {"chars": 2000, "tokens": 571},
-        "memory_md": {"chars": 3000, "tokens": 857},
+        "claude_md": {"bytes": 2000, "tokens": 571},
+        "memory_md": {"bytes": 3000, "tokens": 857},
         "memory_extra_md_files": 0,
         "skill_descriptions": {"count": 10, "total_chars": 5000, "tokens": 1428, "oversized": 5, "top_5": []},
         "mcp": {"user": 2, "project": 1, "total": 3, "tokens_estimated": 1800, "tokens_note": "ESTIMATE"},
@@ -88,8 +88,8 @@ def test_build_report_honesty_notes():
 
 def test_build_report_with_plugin_estimate():
     current = {
-        "claude_md": {"chars": 1000, "tokens": 285},
-        "memory_md": {"chars": 1000, "tokens": 285},
+        "claude_md": {"bytes": 1000, "tokens": 285},
+        "memory_md": {"bytes": 1000, "tokens": 285},
         "memory_extra_md_files": 0,
         "skill_descriptions": {"count": 5, "total_chars": 1000, "tokens": 285, "oversized": 0, "top_5": []},
         "mcp": {"user": 1, "project": 0, "total": 1, "tokens_estimated": 600, "tokens_note": "ESTIMATE"},

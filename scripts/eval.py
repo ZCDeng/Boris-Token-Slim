@@ -153,13 +153,14 @@ def measure_current(home: Path, plugin_hook_tokens: int | None) -> dict:
     """Measure current configuration overhead."""
     m = {}
 
-    # 1. CLAUDE.md
+    # 1. CLAUDE.md (bytes, matching audit.sh `wc -c`)
     claude_md = home / "CLAUDE.md"
     if claude_md.exists():
         text = claude_md.read_text()
-        m["claude_md"] = {"chars": len(text), "tokens": estimate_tokens(len(text))}
+        nbytes = len(text.encode("utf-8"))
+        m["claude_md"] = {"bytes": nbytes, "tokens": estimate_tokens(nbytes)}
     else:
-        m["claude_md"] = {"chars": 0, "tokens": 0}
+        m["claude_md"] = {"bytes": 0, "tokens": 0}
 
     # 2. MEMORY.md
     memory_paths = [
@@ -173,9 +174,10 @@ def measure_current(home: Path, plugin_hook_tokens: int | None) -> dict:
             break
     if mem_file:
         text = mem_file.read_text()
-        m["memory_md"] = {"chars": len(text), "tokens": estimate_tokens(len(text))}
+        nbytes = len(text.encode("utf-8"))
+        m["memory_md"] = {"bytes": nbytes, "tokens": estimate_tokens(nbytes)}
     else:
-        m["memory_md"] = {"chars": 0, "tokens": 0}
+        m["memory_md"] = {"bytes": 0, "tokens": 0}
 
     # Extra .md files in memory dir
     if mem_file:
@@ -272,16 +274,16 @@ def compute_after(current: dict, plugin_hook_tokens: int | None) -> dict:
     a = {}
 
     # CLAUDE.md: target < 1500 bytes
-    cc = current["claude_md"]["chars"]
+    cc = current["claude_md"]["bytes"]
     a["claude_md"] = {
-        "chars": min(cc, THRESHOLDS["claude_md_bytes"]),
+        "bytes": min(cc, THRESHOLDS["claude_md_bytes"]),
         "tokens": estimate_tokens(min(cc, THRESHOLDS["claude_md_bytes"])),
     }
 
     # MEMORY.md: target < 2000 bytes
-    mc = current["memory_md"]["chars"]
+    mc = current["memory_md"]["bytes"]
     a["memory_md"] = {
-        "chars": min(mc, THRESHOLDS["memory_md_bytes"]),
+        "bytes": min(mc, THRESHOLDS["memory_md_bytes"]),
         "tokens": estimate_tokens(min(mc, THRESHOLDS["memory_md_bytes"])),
     }
 
@@ -389,8 +391,8 @@ def print_text_report(report: dict) -> None:
 
     # Measured components
     print("─ Measured components (exact) ────────────────────────────────────────")
-    print(f"  CLAUDE.md           {cur['claude_md']['chars']:>6}c  →  {cur['claude_md']['tokens']:>5}t  |  after: {aft['claude_md']['chars']:>6}c  →  {aft['claude_md']['tokens']:>5}t")
-    print(f"  MEMORY.md           {cur['memory_md']['chars']:>6}c  →  {cur['memory_md']['tokens']:>5}t  |  after: {aft['memory_md']['chars']:>6}c  →  {aft['memory_md']['tokens']:>5}t")
+    print(f"  CLAUDE.md           {cur['claude_md']['bytes']:>6}B  →  {cur['claude_md']['tokens']:>5}t  |  after: {aft['claude_md']['bytes']:>6}B  →  {aft['claude_md']['tokens']:>5}t")
+    print(f"  MEMORY.md           {cur['memory_md']['bytes']:>6}B  →  {cur['memory_md']['tokens']:>5}t  |  after: {aft['memory_md']['bytes']:>6}B  →  {aft['memory_md']['tokens']:>5}t")
     print(f"  Skill descriptions  {cur['skill_descriptions']['total_chars']:>6}c  →  {cur['skill_descriptions']['tokens']:>5}t  |  after: {aft['skill_descriptions']['chars']:>6}c  →  {aft['skill_descriptions']['tokens']:>5}t")
     print(f"    ({cur['skill_descriptions']['count']} skills, {cur['skill_descriptions']['oversized']} oversized)")
     print()
