@@ -3,7 +3,7 @@
 # Two layers:
 #   1. Eight static metrics (sizes, counts, thresholds — including codeburn-inspired
 #      CLAUDE.md @-import expansion and BASH_MAX_OUTPUT_LENGTH cap)
-#   2. Fourteen gotcha detectors (concrete evidence: paths, names, line numbers)
+#   2. Fifteen gotcha detectors (concrete evidence: paths, names, line numbers)
 # Exit code 0 always — this is a report, not a gate.
 
 set -u
@@ -202,12 +202,13 @@ EOF
 # LAYER 2 · Fourteen gotcha detectors
 # Each prints concrete evidence (paths, names) the user can act on.
 # ============================================================================
-echo "PART 2 · Fourteen gotcha detectors (with locatable evidence)"
+echo "PART 2 · Fifteen gotcha detectors (with locatable evidence)"
 echo "          (dead symlinks · _archive trap · sub-plugin explosion ·"
 echo "           same-name plugin · project-scope MCP · zombie configs ·"
 echo "           MCP zombie resurrection · embedded sub-skills ·"
 echo "           configured-but-uncalled MCP · junk reads · duplicate reads ·"
-echo "           oversized skill descriptions · YAML pitfalls · whitelist orphans)"
+echo "           oversized skill descriptions · YAML pitfalls · whitelist orphans ·"
+echo "           cache-prefix poisoning)"
 echo ""
 
 issues=0
@@ -907,11 +908,149 @@ if [ "$orphan_count" -gt 0 ]; then
   print_finding "Orphan slash-menu whitelist entries" "$details"
 fi
 
+# ---------- Gotcha 15: cache-prefix poisoning (volatile content in stable prefix) ----------
+# Anthropic prompt caching hashes whole blocks. If any byte of CLAUDE.md / MEMORY.md
+# mutates per session (today's date, "currentDate" injection, last-updated stamps),
+# the entire block misses cache → 10x full input price instead of 0.1x cached read.
+# Inspired by Ronin (@DeRonin_) "How To Cut Your AI Coding Bill by 80%" — leak #1:
+# stable context re-sent every turn × cache-prefix invalidation = the dominant waste vector.
+if command -v python3 >/dev/null 2>&1; then
+  # Compute the memory dir only when memory_md is a real file — otherwise
+  # `dirname ""` returns "." and the helper would scan the current working
+  # directory's *.md files (catastrophic false-positives on CHANGELOG.md
+  # / README.md when audit.sh is run from the project tree).
+  memory_md_dir=""
+  if [ -n "$memory_md" ] && [ -f "$memory_md" ]; then
+    memory_md_dir="$(dirname "$memory_md")"
+  fi
+  poison_out=$(python3 - "$CLAUDE_HOME/CLAUDE.md" "$memory_md" "$memory_md_dir" <<'PYEOF' 2>/dev/null
+import os, re, sys
+
+# Candidate files. Each contributes to the stable prefix sent on every session
+# start. Mutation in any of them invalidates the cached block for that file.
+candidates = []
+for arg in sys.argv[1:]:
+    if not arg: continue
+    if os.path.isfile(arg):
+        candidates.append(arg)
+    elif os.path.isdir(arg):
+        # memory/*.md siblings — these get loaded too
+        for f in sorted(os.listdir(arg)):
+            if f.endswith(".md") and f != "MEMORY.md":
+                full = os.path.join(arg, f)
+                if os.path.isfile(full):
+                    candidates.append(full)
+
+# Volatility markers. We deliberately do NOT match bare ISO dates — too noisy
+# (changelogs, version strings, "as of 2026-05" are stable content). We match
+# only the phrasing that signals "this gets rewritten per session".
+PATTERNS = [
+    # (regex, label)
+    (re.compile(r"^#+\s*current[\s_-]?date\b", re.I | re.M), "currentDate heading"),
+    (re.compile(r"^#+\s*today\b", re.I | re.M),              "today heading"),
+    (re.compile(r"(?i)today'?s? date (is|:)"),               "today's-date marker"),
+    (re.compile(r"(?i)current date\s*[:=]"),                 "current-date marker"),
+    (re.compile(r"(?i)last updated\s*[:=]\s*\d"),            "last-updated stamp"),
+    (re.compile(r"(?i)generated (at|on)\s*[:=]?\s*\d"),      "generated-at stamp"),
+    (re.compile(r"(?i)now\s+is\s+\d{4}-\d{2}"),              "now-is marker"),
+    (re.compile(r"当前日期"),                                  "当前日期 marker"),
+    (re.compile(r"今天[是的]?\s*\d{4}"),                       "今天日期 marker"),
+    (re.compile(r"(?i)更新于\s*[:：]?\s*\d{4}"),                "更新于 marker"),
+    # Auto-rotating "recent N" injection (claude-mem / mempalace style)
+    (re.compile(r"(?i)(recent|last)\s+\d+\s+(events?|observations?|entries|messages?)"), "recent-N injection"),
+]
+
+findings = []   # (file, line_no, label, sample)
+for path in candidates:
+    try:
+        text = open(path, encoding="utf-8", errors="ignore").read()
+    except OSError:
+        continue
+    file_bytes = len(text.encode("utf-8"))
+    for rx, label in PATTERNS:
+        for m in rx.finditer(text):
+            line_no = text.count("\n", 0, m.start()) + 1
+            line_start = text.rfind("\n", 0, m.start()) + 1
+            line_end = text.find("\n", m.end())
+            if line_end == -1: line_end = len(text)
+            sample = text[line_start:line_end].strip()[:80]
+            findings.append((path, line_no, label, sample, file_bytes))
+
+if not findings:
+    sys.exit(0)
+
+# Aggregate by file: report one block per file with all matches, and the
+# file's full byte size (because the WHOLE file misses cache on any mutation).
+by_file = {}
+for path, line_no, label, sample, sz in findings:
+    by_file.setdefault(path, {"size": sz, "hits": []})["hits"].append((line_no, label, sample))
+
+print(f"POISONED_FILES\t{len(by_file)}")
+total_bytes_at_risk = sum(d["size"] for d in by_file.values())
+print(f"TOTAL_BYTES_AT_RISK\t{total_bytes_at_risk}")
+
+for path, info in sorted(by_file.items(), key=lambda x: -x[1]["size"]):
+    HOME = os.path.expanduser("~")
+    display = "~" + path[len(HOME):] if path.startswith(HOME) else path
+    print(f"FILE\t{display}\t{info['size']}")
+    for line_no, label, sample in info["hits"][:4]:
+        print(f"HIT\t{line_no}\t{label}\t{sample}")
+PYEOF
+)
+fi
+
+if [ -n "${poison_out:-}" ]; then
+  poisoned_count=$(printf '%s' "$poison_out" | awk -F'\t' '/^POISONED_FILES\t/{print $2; exit}')
+  total_bytes=$(printf '%s' "$poison_out" | awk -F'\t' '/^TOTAL_BYTES_AT_RISK\t/{print $2; exit}')
+  if [ -n "$poisoned_count" ] && [ "$poisoned_count" -gt 0 ]; then
+    # Rough $/month projection. Assumptions disclosed inline.
+    # bytes → tokens via the conservative ~4 chars/token ratio (CLAUDE.md is mostly ASCII prose).
+    # 90 session starts/month = ~3/day, a reasonable default for an active user.
+    # Cache miss penalty = full input (1.0x) instead of cache read (0.1x) → 0.9x of input price.
+    # Sonnet input $3/M used as a conservative middle of the road.
+    est_tokens=$((total_bytes / 4))
+    # Float math via awk — integer arithmetic truncates small-file cost to 0.
+    # Formula: tokens × 90 starts × $3/M × 0.9 cache-miss penalty.
+    est_dollars_per_month=$(awk -v t="$est_tokens" 'BEGIN { printf "%.2f", t * 90 * 3 * 0.9 / 1000000 }')
+    details="$poisoned_count file(s) in the prompt-cache prefix contain per-session volatile content."
+    details+=$'\n'"Anthropic caches the WHOLE block by content hash — a single mutating line"
+    details+=$'\n'"invalidates the entire file → you pay full input price (10x cached read) on every session start."
+    details+=$'\n'""
+    while IFS=$'\t' read -r kind a b c d; do
+      case "$kind" in
+        FILE)
+          details+=$'\n'"  $a  (${b} bytes)"
+          ;;
+        HIT)
+          # a=line_no, b=label, c=sample
+          short_sample="$c"
+          [ ${#short_sample} -gt 60 ] && short_sample="${short_sample:0:58}…"
+          details+=$'\n'"    L$a  [$b]  $short_sample"
+          ;;
+      esac
+    done <<< "$poison_out"
+    details+=$'\n'""
+    details+=$'\n'"Cost shape: ${total_bytes} bytes ≈ ${est_tokens} tokens. Assuming ~90 session starts/month"
+    details+=$'\n'"and Sonnet input pricing, mutating prefix costs ≈ \$${est_dollars_per_month}/month over a cached baseline."
+    details+=$'\n'"(For Opus-heavy users multiply by 5x. Small numbers compound — multiple poisoned files stack.)"
+    details+=$'\n'""
+    details+=$'\n'"Fix options:"
+    details+=$'\n'"  • Move volatile lines (today's date, currentDate heading) to a UserPromptSubmit"
+    details+=$'\n'"    hook that injects them into the USER message instead of CLAUDE.md."
+    details+=$'\n'"  • If you actually need the date in CLAUDE.md, put it at the very END so at"
+    details+=$'\n'"    least the leading static portion can cache (Anthropic uses suffix breakpoints)."
+    details+=$'\n'"  • Recent-N auto-injection (claude-mem/mempalace) belongs in a separate file"
+    details+=$'\n'"    NOT in the global stable prefix — re-config the tool to write to a project"
+    details+=$'\n'"    file or to a hook-injected user message."
+    print_finding "Cache-prefix poisoning (volatile content invalidates 10x discount)" "$details"
+  fi
+fi
+
 # ============================================================================
 # Summary
 # ============================================================================
 if [ "$issues" -eq 0 ]; then
-  echo "  ✅ No gotchas detected. (All fourteen detectors clean.)"
+  echo "  ✅ No gotchas detected. (All fifteen detectors clean.)"
   echo ""
 fi
 
@@ -928,6 +1067,7 @@ echo "─── Recommendations ────────────────
 [ "$commands_subdirs" -gt 0 ]        && echo "  • commands/ 下有大类 skill pack：整目录挪到 ~/.claude/_commands_archive/"
 [ "$hooks_active" -gt 3 ]            && echo "  • hooks 多：审计每个 UserPromptSubmit hook 是否真的每次都需要"
 [ "$bash_output_limit" -gt 15000 ]   && echo "  • Bash 输出上限 $bash_output_limit > 15000：在 ~/.zshrc 加 export BASH_MAX_OUTPUT_LENGTH=15000"
+[ -n "${poisoned_count:-}" ] && [ "${poisoned_count:-0}" -gt 0 ] && echo "  • 缓存前缀被污染（${poisoned_count} 个文件含每会话变化的标记）：把日期/时间戳移出 CLAUDE.md，10x 杠杆点"
 
 echo ""
 if ls -d "$CLAUDE_HOME"/_tokenslim_archive_* >/dev/null 2>&1; then

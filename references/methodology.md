@@ -122,6 +122,27 @@ low_cache = [s for s in sessions if s.cache_hit_rate < 50 and s.assistant_turns 
 
 所以最后输出的 cost 是**"如果你用 API 按表计价的等效成本"**，不是你账单的实际数字。订阅用户看绝对数没意义，但**比较 session 之间的相对值**（哪个最贵、cache 命中如何）依然准。
 
+## Scope & non-scope（坦诚边界）
+
+Boris-Token-Slim 是**静态基线审计 + 回溯 session 解析**——专门盯"装好之后每次启动都在烧的固定开销"。它**不**覆盖运行时 token 开销的全部维度。
+
+| 维度 | Boris 是否覆盖 | 补充工具 |
+|---|---|---|
+| CLAUDE.md / MEMORY.md 体积 | ✅ 静态指标 1/2 | — |
+| 插件 / MCP 常驻 schema 税 | ✅ 静态指标 3/4 + 检测器 9 | — |
+| Skill 描述膨胀（每会话灌入 system-reminder） | ✅ 检测器 12/13 | — |
+| **缓存前缀污染**（10x 杠杆点） | ✅ 检测器 15（v0.4） | — |
+| Session 内 token 累积（duplicate reads / junk reads / 30+ turn 历史滚雪球） | ✅ 检测器 10/11 + analyze.py | — |
+| **工具结果体积**（`cargo test` 灌进 context 的 KB 级 raw output） | ❌ 未测量 | [rtk](https://github.com/rtk-ai/rtk) 之类的 stdin/stdout filter |
+| **Output token 体积**（模型话痨） | ❌ 未测量 | [caveman](https://github.com/juliusbrussee/caveman) 之类的 verbosity 抑制 |
+| **模型路由**（Opus 干 typo fix 这种错配） | ❌ 不建议 | [claude-code-router](https://github.com/musistudio/claude-code-router) / [Anthropic Routing API](https://docs.anthropic.com/) |
+| **Speculative file include**（"以防万一加这个文件"） | ❌ 运行时行为 | 写更狠的 CLAUDE.md / 用 `grep` 替代 `Read` |
+| 实时账单告警 / 限额 | ❌ 不在范围内 | [ccusage](https://github.com/ryoppippi/ccusage) / [Claude-Code-Usage-Monitor](https://github.com/Maciek-roboblog/Claude-Code-Usage-Monitor) |
+
+**为什么这么划线**：Boris 遵守 Iron Rule 1（"审计不注入"）——只读、可重入、零行为修改。任何"压缩输出"或"换模型"都属于**注入式**优化，由专门工具承担。
+
+**思路来源**：检测器 15 + 本节范围划线参考 Ronin (@DeRonin_) "How To Cut Your AI Coding Bill by 80%"（2026 年 5 月）。文章里 leak #1（stable context 每轮重发）和 prompt caching 10x 杠杆，恰好对应 Boris 的核心战场。文章里 leak #3（模型路由错配）和 leak #5（speculative file include）则被本工具明确划在范围外。
+
 ## CI / 自动化
 
 `--json` 模式输出稳定 schema (`boris-token-slim/transcript-analyzer/v1`)，可以接到 cron 或 GitHub Actions：

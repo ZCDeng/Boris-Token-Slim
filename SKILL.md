@@ -29,7 +29,7 @@ user-invocable: true
 bash scripts/audit.sh
 ```
 
-输出 7 行核心指标 + 8 个 gotcha 检测结果（指标包括 CLAUDE.md / MEMORY.md 大小、插件数、MCP 数、本地 skill 数、commands 下子目录数、活动 hooks，附每项推荐上限；gotcha 包括死 symlink、_archive 陷阱、sub-plugin 爆炸等）。把表格直接贴给用户，让他看见基线。
+输出 8 行核心指标 + 15 个 gotcha 检测结果（指标包括 CLAUDE.md / MEMORY.md 大小、插件数、MCP 数、本地 skill 数、commands 下子目录数、活动 hooks、Bash 输出上限，附每项推荐上限；gotcha 包括死 symlink、_archive 陷阱、sub-plugin 爆炸、缓存前缀污染等）。把表格直接贴给用户，让他看见基线。
 
 ### Phase 0.5: 回溯分析过往 session（可选但推荐）
 

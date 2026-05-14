@@ -2,6 +2,18 @@
 
 All notable changes to Boris-Token-Slim will be documented in this file. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Detector 15 — Cache-prefix poisoning**: static scan of `CLAUDE.md` / `MEMORY.md` / `memory/*.md` for per-session volatile content (today's date markers, `# currentDate` headings, `Last updated:` stamps, `Generated at` stamps, `Recent N observations` auto-injection, Chinese equivalents `当前日期` / `今天日期` / `更新于`). Anthropic prompt caching hashes the entire block by content — any byte that mutates per session invalidates the cache → you pay full input (1.0x) instead of cache read (0.1x) on the whole file on every session start. The detector reports each match with file path + line number + matched pattern, plus a `$/month` projection (bytes → tokens at ~4:1, 90 session starts/month, Sonnet input pricing × 0.9 cache-miss penalty) so users see the dollar impact directly. Volatility phrasing is matched strictly — bare ISO dates in version markers ("as of 2026-04") or changelog citations do *not* trigger the detector.
+- **`Scope & non-scope` section in `references/methodology.md`**: explicit table of what Boris audits (static baseline + retrospective session parsing) vs. what it deliberately does NOT (output-side compression, tool-result body size, model routing, speculative file inclusion). Names the adjacent tools (rtk / caveman / claude-code-router / ccusage / Claude-Code-Usage-Monitor) so users know where to look for the complementary lanes.
+- **`tests/test_detector_15.py`**: 6 end-to-end tests that subprocess `audit.sh` against synthetic `CLAUDE_HOME` directories — clean prefix should not fire, poisoned prefix should fire, cost projection appears, and bare ISO dates in prose do not trigger false positives.
+
+### Why this matters
+
+Cache-prefix poisoning is a single-line bug with a 10x cost multiplier. A `# currentDate\nToday's date is 2026-05-14.` block injected by a hook into the user's global `CLAUDE.md` invalidates the entire file's cache prefix — meaning a 5KB `CLAUDE.md` that should cost ~$0.015/month at cached prices instead costs ~$0.15/month at full input prices, just for the daily session starts. The fix is trivial (move the volatile lines to a UserPromptSubmit hook that injects into the user message instead of CLAUDE.md), but the diagnosis was invisible to the previous 14 detectors. Inspiration: Ronin (@DeRonin_) "How To Cut Your AI Coding Bill by 80%" — leak #1 (stable context re-sent every turn) combined with the prompt-cache 10x discount is the dominant fixable waste vector. The scope section makes Boris's complementary role explicit: it audits the cacheable baseline, other tools handle output/routing/runtime.
+
 ## [v0.3.0] — 2026-05-09
 
 ### Added
